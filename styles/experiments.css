@@ -1,0 +1,315 @@
+/* ========================================
+   CHAOS LAB — Experiment Specific Styles
+   ======================================== */
+
+/* ========================================
+   Experiment Canvas Base
+   ======================================== */
+.experiment-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ========================================
+   Cursor Gravity Experiment
+   ======================================== */
+#exp-cursor-gravity {
+  background:
+    radial-gradient(ellipse at var(--mouse-x, 50%) var(--mouse-y, 50%), rgba(0, 255, 200, 0.03) 0%, transparent 50%),
+    var(--bg-panel);
+}
+
+/* Trail canvas for gravity */
+#gravity-trail {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* ========================================
+   Cursed Button Experiment
+   ======================================== */
+#exp-cursed-button {
+  background: var(--bg-panel);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 400px;
+}
+
+/* Particle burst on click */
+.cursed-burst {
+  position: absolute;
+  pointer-events: none;
+  z-index: 10;
+}
+
+/* ========================================
+   Name Particles Experiment
+   ======================================== */
+#exp-name-particles {
+  background: var(--bg-panel);
+  min-height: 500px;
+}
+
+/* Text formation canvas */
+#name-text-canvas {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+  z-index: 1;
+}
+
+/* Particle explosion canvas */
+#name-particle-canvas {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-lg);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* ========================================
+   Shared Particle Styles (CSS-based fallback)
+   ======================================== */
+.particle {
+  position: absolute;
+  border-radius: 50%;
+  pointer-events: none;
+  will-change: transform, opacity;
+}
+
+/* ========================================
+   Loading States
+   ======================================== */
+.experiment-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+}
+
+.experiment-loading::before {
+  content: '';
+  width: 32px;
+  height: 32px;
+  border: 3px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ========================================
+   Error States
+   ======================================== */
+.experiment-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  padding: var(--space-xl);
+  text-align: center;
+  color: var(--accent-2);
+}
+
+.experiment-error h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+}
+
+.experiment-error p {
+  font-size: 0.875rem;
+  color: var(--fg-muted);
+  max-width: 300px;
+}
+
+.experiment-error button {
+  margin-top: var(--space-sm);
+  padding: var(--space-sm) var(--space-lg);
+  font-family: var(--font-ui);
+  font-size: 0.875rem;
+  font-weight: 500;
+  color: var(--bg);
+  background: var(--accent-2);
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: all var(--fast) var(--ease);
+}
+
+.experiment-error button:hover {
+  background: #ff4a85;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 20px var(--accent-2-glow);
+}
+
+/* ========================================
+   Pause Overlay
+   ======================================== */
+.pause-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-md);
+  background: rgba(10, 10, 15, 0.85);
+  border-radius: var(--radius-lg);
+  backdrop-filter: blur(8px);
+  z-index: 10;
+  animation: fade-in var(--fast) var(--ease);
+}
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pause-overlay .pause-icon {
+  font-size: 3rem;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { transform: scale(1); opacity: 0.7; }
+  50% { transform: scale(1.1); opacity: 1; }
+}
+
+.pause-overlay p {
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  color: var(--fg-muted);
+}
+
+/* ========================================
+   Performance Warning
+   ======================================== */
+.perf-warning {
+  position: fixed;
+  top: var(--space-lg);
+  right: var(--space-lg);
+  z-index: var(--z-toast);
+  padding: var(--space-md) var(--space-lg);
+  background: var(--bg-panel);
+  border: 1px solid var(--accent-3);
+  border-radius: var(--radius-md);
+  color: var(--accent-3);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  box-shadow: 0 4px 20px rgba(255, 215, 0, 0.2);
+  animation: slide-right var(--normal) var(--ease-spring);
+}
+
+@keyframes slide-right {
+  from { transform: translateX(100%); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+
+/* ========================================
+   Experiment Entrance Animations
+   ======================================== */
+.experiment-enter {
+  animation: experiment-enter var(--slow) var(--ease-spring);
+}
+
+@keyframes experiment-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.experiment-exit {
+  animation: experiment-exit var(--fast) var(--ease) forwards;
+}
+
+@keyframes experiment-exit {
+  to {
+    opacity: 0;
+    transform: scale(0.98) translateY(-10px);
+  }
+}
+
+/* ========================================
+   Reduced Motion Overrides
+   ======================================== */
+@media (prefers-reduced-motion: reduce) {
+  .experiment-enter,
+  .experiment-exit,
+  .pause-overlay,
+  .perf-warning,
+  .name-input-wrapper {
+    animation: none !important;
+  }
+
+  .logo-mark,
+  .switcher-btn[aria-selected="true"] .btn-icon,
+  .cursed-btn.running,
+  .cursed-btn.escaped,
+  .pause-overlay .pause-icon,
+  .experiment-loading::before {
+    animation: none !important;
+  }
+
+  .particle,
+  .cursed-burst {
+    transition: none !important;
+    animation: none !important;
+  }
+}
+
+/* ========================================
+   High Contrast Mode
+   ======================================== */
+@media (prefers-contrast: high) {
+  :root {
+    --border: #444;
+    --border-bright: #666;
+    --fg-muted: #aaa;
+    --fg-subtle: #888;
+  }
+
+  .switcher-btn[aria-selected="true"] {
+    border: 2px solid var(--fg);
+  }
+
+  .name-input:focus,
+  .cursed-btn:focus-visible {
+    outline-width: 3px;
+  }
+}
+
+/* ========================================
+   Print Styles
+   ======================================== */
+@media print {
+  .header, .switcher, .footer, .overlay, .bg-canvas {
+    display: none !important;
+  }
+  .viewport {
+    min-height: auto;
+    padding: 0;
+  }
+  .viewport canvas {
+    box-shadow: none;
+    border: 1px solid #000;
+  }
+}

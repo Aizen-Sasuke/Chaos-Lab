@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="CHAOS LAB — Experiments that should probably not be running in a browser.">
+  <title>CHAOS LAB</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles/main.css">
+  <link rel="stylesheet" href="styles/ui.css">
+  <link rel="stylesheet" href="styles/experiments.css">
+</head>
+<body>
+  <div class="app">
+    <!-- Ambient background -->
+    <canvas id="bg-canvas" class="bg-canvas" aria-hidden="true"></canvas>
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <div class="logo">
+          <span class="logo-mark">⚛</span>
+          <span class="logo-text">CHAOS LAB</span>
+        </div>
+        <span class="tagline">Experiments that should probably not be running in a browser.</span>
+      </div>
+      <div class="header-right">
+        <div class="stats" id="stats" aria-live="polite">
+          <div class="stat">
+            <span class="stat-value" id="fps">60</span>
+            <span class="stat-label">FPS</span>
+          </div>
+          <div class="stat">
+            <span class="stat-value" id="particle-count">0</span>
+            <span class="stat-label">PARTICLES</span>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <!-- Experiment Switcher -->
+    <nav class="switcher" id="switcher" role="tablist" aria-label="Experiment selector">
+      <div class="switcher-track">
+        <button class="switcher-btn" role="tab" data-exp="cursor-gravity" aria-selected="true">
+          <span class="btn-icon">🌀</span>
+          <span class="btn-label">Cursor Gravity</span>
+          <span class="btn-desc">Particles orbit your cursor</span>
+        </button>
+        <button class="switcher-btn" role="tab" data-exp="cursed-button" aria-selected="false">
+          <span class="btn-icon">🎯</span>
+          <span class="btn-label">Cursed Button</span>
+          <span class="btn-desc">A button that fights back</span>
+        </button>
+        <button class="switcher-btn" role="tab" data-exp="name-particles" aria-selected="false">
+          <span class="btn-icon">✨</span>
+          <span class="btn-label">Name Particles</span>
+          <span class="btn-desc">Type your name, watch it explode</span>
+        </button>
+      </div>
+      <div class="switcher-indicator" id="switcher-indicator"></div>
+    </nav>
+
+    <!-- Main Experiment Viewport -->
+    <main class="viewport" id="viewport">
+      <!-- Experiment canvases are injected here -->
+    </main>
+
+    <!-- Experiment-specific UI overlays -->
+    <div class="overlay" id="overlay"></div>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <p>Built with vanilla JS, Canvas 2D, and questionable decisions.</p>
+      <p class="footer-hint">Press <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd> to switch experiments · <kbd>Space</kbd> to pause</p>
+    </footer>
+  </div>
+
+  <script type="module" src="scripts/main.js"></script>
+</body>
+</html>
