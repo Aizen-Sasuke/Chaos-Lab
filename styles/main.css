@@ -186,4 +186,9 @@ kbd {
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   color: var(--fg-muted);
+  transition: transform var(--fast) ease;
+}
+
+kbd:active {
+  transform: scale(0.95);
 }

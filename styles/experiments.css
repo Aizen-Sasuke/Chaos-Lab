@@ -38,6 +38,22 @@
   justify-content: center;
   align-items: center;
   min-height: 400px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Cursed button state transitions */
+.cursed-btn {
+  transition: transform var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+
+.cursed-btn.clicked {
+  transform: scale(0.96);
+  box-shadow: 0 0 20px var(--accent-2-glow);
+}
+
+.cursed-btn.escaped {
+  transform: translate(var(--escape-x, 0px), var(--escape-y, 0px));
+  box-shadow: 0 0 30px var(--accent-3-glow);
 }
 
 /* Particle burst on click */
