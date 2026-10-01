@@ -1,0 +1,5 @@
+{
+  "name": "CHAOS LAB",
+  "description": "Experiments that should probably not be running in a browser.",
+  "requestFramePermissions": []
+}

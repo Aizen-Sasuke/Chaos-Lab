@@ -130,23 +130,31 @@ export class Particle {
       }
     }
 
-    // Life decay
-    this.age += dt;
-    this.life = Math.max(0, this.maxLife - this.age);
-    this.alpha = Math.max(0, this.alpha - this.fadeRate * dt * 60);
+    // Life & Fade decay
+    if (this.fadeRate > 0) {
+      this.alpha = Math.max(0, this.alpha - this.fadeRate * dt * 60);
+    }
 
-    // Radius decay
-    this.radius = this.baseRadius * (this.life / this.maxLife);
+    if (Number.isFinite(this.maxLife) && this.maxLife > 0) {
+      this.age += dt;
+      this.life = Math.max(0, this.maxLife - this.age);
+      if (this.maxLife > 0) {
+        this.radius = this.baseRadius * (this.life / this.maxLife);
+      }
+      if (this.life <= 0) {
+        this.active = false;
+        return false;
+      }
+    }
+
+    if (this.alpha <= 0) {
+      this.active = false;
+      return false;
+    }
 
     // Bounds checking
     if (bounds) {
       this.checkBounds(bounds);
-    }
-
-    // Deactivate if dead
-    if (this.life <= 0 || this.alpha <= 0) {
-      this.active = false;
-      return false;
     }
 
     return true;
@@ -301,7 +309,15 @@ export class ParticlePool {
       this.expand(10); // Expand pool
     }
     // Reset particle properties
-    Object.assign(particle, options, { active: true });
+    particle.age = 0;
+    particle.active = true;
+    particle.alpha = options.alpha !== undefined ? options.alpha : 1;
+    particle.life = options.life !== undefined ? options.life : 1;
+    particle.maxLife = options.maxLife !== undefined ? options.maxLife : particle.life;
+    particle.radius = options.radius !== undefined ? options.radius : (particle.baseRadius || 2);
+    particle.baseRadius = particle.radius;
+    particle.fadeRate = options.fadeRate !== undefined ? options.fadeRate : 0.01;
+    Object.assign(particle, options);
     this.active.push(particle);
     return particle;
   }

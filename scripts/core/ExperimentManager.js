@@ -135,26 +135,25 @@ export class ExperimentManager extends EventEmitter {
 
     try {
       await this.currentInstance.init(this.viewport);
-
-      // Entrance animation
-      if (animate) {
-        this.currentInstance.canvas.classList.add('experiment-enter');
-        await this.wait(400);
-        this.currentInstance.canvas.classList.remove('experiment-enter');
-      }
-
       this.currentId = id;
       this.currentInstance.start();
+
+      // Entrance animation
+      if (animate && this.currentInstance.canvas) {
+        this.currentInstance.canvas.classList.add('experiment-enter');
+        await this.wait(300);
+        this.currentInstance.canvas.classList.remove('experiment-enter');
+      }
 
       this.emit('switch', { id, metadata });
     } catch (error) {
       console.error(`Failed to initialize experiment "${id}":`, error);
       this.showError(id, error);
-      this.transitioning = false;
       return false;
+    } finally {
+      this.transitioning = false;
     }
 
-    this.transitioning = false;
     return true;
   }
 
@@ -171,11 +170,14 @@ export class ExperimentManager extends EventEmitter {
       if (isActive) {
         // Position indicator
         const rect = btn.getBoundingClientRect();
-        const trackRect = this.switcher.querySelector('.switcher-track').getBoundingClientRect();
-        const indicator = document.getElementById('switcher-indicator');
-        if (indicator) {
-          indicator.style.width = `${rect.width}px`;
-          indicator.style.transform = `translateX(${rect.left - trackRect.left}px)`;
+        const track = this.switcher.querySelector('.switcher-track');
+        if (track) {
+          const trackRect = track.getBoundingClientRect();
+          const indicator = document.getElementById('switcher-indicator');
+          if (indicator) {
+            indicator.style.width = `${rect.width}px`;
+            indicator.style.transform = `translateX(${rect.left - trackRect.left}px)`;
+          }
         }
       }
     });

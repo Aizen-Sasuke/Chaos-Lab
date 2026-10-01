@@ -5,7 +5,7 @@
 
 import { Experiment } from '../core/Experiment.js';
 import { Particle, ParticlePool, ForceField, SpatialGrid } from '../core/ParticleSystem.js';
-import { random, clamp, lerp, hslToCss, getRandomAccent } from '../core/utils.js';
+import { random, randomChoice, clamp, lerp, hslToCss, getRandomAccent } from '../core/utils.js';
 
 const COLORS = [
   '#00ffc8', // cyan
@@ -20,7 +20,7 @@ const GRAVITY_STRENGTH = 8000;
 const GRAVITY_RADIUS = 400;
 const VORTEX_STRENGTH = 3000;
 
-export default class CursorGravityExperiment extends Experiment {
+export class CursorGravityExperiment extends Experiment {
   constructor(options = {}) {
     super({ id: 'cursor-gravity', name: 'Cursor Gravity', ...options });
 
@@ -62,14 +62,16 @@ export default class CursorGravityExperiment extends Experiment {
     }), PARTICLE_COUNT);
 
     // Initialize particles distributed across canvas
+    const w = Math.max(300, this.width);
+    const h = Math.max(300, this.height);
     for (let i = 0; i < PARTICLE_COUNT; i++) {
       const p = this.pool.acquire({
-        x: random(0, this.width),
-        y: random(0, this.height),
+        x: random(0, w),
+        y: random(0, h),
         vx: random(-20, 20),
         vy: random(-20, 20),
-        life: 1,
-        maxLife: 1,
+        life: Infinity,
+        maxLife: Infinity,
         fadeRate: 0
       });
       this.particles.push(p);
@@ -217,8 +219,11 @@ export default class CursorGravityExperiment extends Experiment {
   render() {
     const ctx = this.ctx;
 
-    // Clear with slight trail effect
-    ctx.fillStyle = 'rgba(10, 10, 15, 0.15)';
+    // Clear
+    ctx.clearRect(0, 0, this.width, this.height);
+
+    // Subtle dark panel background
+    ctx.fillStyle = '#11111a';
     ctx.fillRect(0, 0, this.width, this.height);
 
     // Draw force field visualization

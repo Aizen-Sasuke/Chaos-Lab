@@ -4,7 +4,8 @@
  */
 
 import { Experiment } from '../core/Experiment.js';
-import { Particle, ParticleEmitter, random, clamp, lerp, hslToCss, getRandomAccent, distance } from '../core/utils.js';
+import { Particle, ParticleEmitter } from '../core/ParticleSystem.js';
+import { random, randomChoice, clamp, lerp, hslToCss, getRandomAccent, distance } from '../core/utils.js';
 
 const TAUNTS = [
   "Nice try.",
@@ -55,7 +56,7 @@ const ESCAPE_TAUNTS = [
 
 const PARTICLE_COLORS = ['#ff2a6d', '#ffd700', '#00ffc8', '#ff6d00', '#7c4dff'];
 
-export default class CursedButtonExperiment extends Experiment {
+export class CursedButtonExperiment extends Experiment {
   constructor(options = {}) {
     super({ id: 'cursed-button', name: 'Cursed Button', ...options });
 
@@ -91,9 +92,9 @@ export default class CursedButtonExperiment extends Experiment {
     // Calculate bounds
     this.updateBounds();
 
-    // Initial position - center
-    this.buttonRect.x = (this.bounds.right - this.bounds.left - this.buttonRect.width) / 2 + this.bounds.left;
-    this.buttonRect.y = (this.bounds.bottom - this.bounds.top - this.buttonRect.height) / 2 + this.bounds.top;
+    // Initial position - center of screen
+    this.buttonRect.x = Math.max(this.bounds.left, (window.innerWidth - this.buttonRect.width) / 2);
+    this.buttonRect.y = Math.max(this.bounds.top, (window.innerHeight - this.buttonRect.height) / 2);
     this.targetRect = { ...this.buttonRect };
 
     // Create button element
@@ -198,13 +199,14 @@ export default class CursedButtonExperiment extends Experiment {
   }
 
   updateBounds() {
-    const viewportRect = this.viewport?.getBoundingClientRect() || { width: window.innerWidth, height: window.innerHeight };
+    const w = window.innerWidth || 800;
+    const h = window.innerHeight || 600;
     const padding = 50;
     this.bounds = {
       left: padding,
-      top: padding,
-      right: viewportRect.width - padding,
-      bottom: viewportRect.height - padding
+      top: 180,
+      right: Math.max(300, w - padding),
+      bottom: Math.max(300, h - padding)
     };
   }
 

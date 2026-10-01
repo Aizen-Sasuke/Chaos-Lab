@@ -71,6 +71,8 @@ export class Experiment extends EventEmitter {
     this.canvas.addEventListener('pointerup', this.pointerHandler);
     this.canvas.addEventListener('pointerleave', this.pointerHandler);
     this.canvas.addEventListener('pointercancel', this.pointerHandler);
+    window.addEventListener('pointermove', this.pointerHandler);
+    window.addEventListener('pointerup', this.pointerHandler);
 
     // Keyboard events
     this.keyboardHandler = this.handleKeyboard.bind(this);
@@ -94,8 +96,11 @@ export class Experiment extends EventEmitter {
     const rect = this.container.getBoundingClientRect();
     this.dpr = window.devicePixelRatio || 1;
 
-    this.width = Math.max(1, Math.floor(rect.width));
-    this.height = Math.max(1, Math.floor(rect.height));
+    const containerW = Math.floor(rect.width) || window.innerWidth || 800;
+    const containerH = Math.floor(rect.height) || Math.max(500, window.innerHeight - 200);
+
+    this.width = Math.max(300, containerW);
+    this.height = Math.max(300, containerH);
 
     this.canvas.width = this.width * this.dpr;
     this.canvas.height = this.height * this.dpr;
@@ -198,6 +203,7 @@ export class Experiment extends EventEmitter {
    */
   pause() {
     this.paused = true;
+    this.showPauseIndicator();
     this.emit('pause');
   }
 
@@ -206,8 +212,29 @@ export class Experiment extends EventEmitter {
    */
   resume() {
     this.paused = false;
+    this.hidePauseIndicator();
     this.lastTime = performance.now();
     this.emit('resume');
+  }
+
+  showPauseIndicator() {
+    let pauseEl = document.getElementById('pause-indicator');
+    if (!pauseEl) {
+      pauseEl = document.createElement('div');
+      pauseEl.id = 'pause-indicator';
+      pauseEl.className = 'pause-overlay';
+      pauseEl.innerHTML = `
+        <div class="pause-icon">⏸</div>
+        <p>PAUSED</p>
+        <p style="font-size: 0.75rem; color: var(--fg-subtle);">Press Space to resume</p>
+      `;
+      if (this.container) this.container.appendChild(pauseEl);
+    }
+  }
+
+  hidePauseIndicator() {
+    const pauseEl = document.getElementById('pause-indicator');
+    if (pauseEl) pauseEl.remove();
   }
 
   /**
@@ -230,7 +257,6 @@ export class Experiment extends EventEmitter {
       } else if (content instanceof Node) {
         overlay.appendChild(content);
       }
-      overlay.style.pointerEvents = 'auto';
     }
   }
 
@@ -241,7 +267,6 @@ export class Experiment extends EventEmitter {
     const overlay = document.getElementById('overlay');
     if (overlay) {
       overlay.innerHTML = '';
-      overlay.style.pointerEvents = 'none';
     }
   }
 
@@ -286,12 +311,16 @@ export class Experiment extends EventEmitter {
     if (this.resizeHandler) {
       window.removeEventListener('resize', this.resizeHandler);
     }
-    if (this.pointerHandler && this.canvas) {
-      this.canvas.removeEventListener('pointermove', this.pointerHandler);
-      this.canvas.removeEventListener('pointerdown', this.pointerHandler);
-      this.canvas.removeEventListener('pointerup', this.pointerHandler);
-      this.canvas.removeEventListener('pointerleave', this.pointerHandler);
-      this.canvas.removeEventListener('pointercancel', this.pointerHandler);
+    if (this.pointerHandler) {
+      if (this.canvas) {
+        this.canvas.removeEventListener('pointermove', this.pointerHandler);
+        this.canvas.removeEventListener('pointerdown', this.pointerHandler);
+        this.canvas.removeEventListener('pointerup', this.pointerHandler);
+        this.canvas.removeEventListener('pointerleave', this.pointerHandler);
+        this.canvas.removeEventListener('pointercancel', this.pointerHandler);
+      }
+      window.removeEventListener('pointermove', this.pointerHandler);
+      window.removeEventListener('pointerup', this.pointerHandler);
     }
     if (this.keyboardHandler) {
       window.removeEventListener('keydown', this.keyboardHandler);
@@ -303,6 +332,7 @@ export class Experiment extends EventEmitter {
     }
 
     this.hideOverlay();
+    this.hidePauseIndicator();
     this.clear(); // Clear all event listeners from EventEmitter
     this.emit('destroy');
   }

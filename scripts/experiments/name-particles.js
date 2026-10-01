@@ -4,7 +4,8 @@
  */
 
 import { Experiment } from '../core/Experiment.js';
-import { Particle, ParticleEmitter, TextParticleizer, ForceField, random, clamp, lerp, distance, hslToCss, getRandomAccent } from '../core/utils.js';
+import { Particle, ParticleEmitter, TextParticleizer, ForceField } from '../core/ParticleSystem.js';
+import { random, randomChoice, clamp, lerp, distance, hslToCss, getRandomAccent } from '../core/utils.js';
 
 const PARTICLE_COLORS = [
   '#00ffc8', // cyan
@@ -17,7 +18,7 @@ const PARTICLE_COLORS = [
 
 const BACKGROUND_PARTICLES = 200;
 
-export default class NameParticlesExperiment extends Experiment {
+export class NameParticlesExperiment extends Experiment {
   constructor(options = {}) {
     super({ id: 'name-particles', name: 'Name Particles', ...options });
 
@@ -82,7 +83,12 @@ export default class NameParticlesExperiment extends Experiment {
     wrapper.className = 'name-input-wrapper';
     wrapper.innerHTML = `
       <input type="text" class="name-input" id="name-input" placeholder="Enter your name" maxlength="20" spellcheck="false" autocomplete="off" />
-      <p class="name-input-hint">Press <kbd>Enter</kbd> to form · <kbd>Space</kbd> to explode · <kbd>Backspace</kbd> to clear</p>
+      <div class="name-actions" style="display: flex; gap: 8px; width: 100%; justify-content: center; flex-wrap: wrap;">
+        <button id="btn-form" class="switcher-btn" style="padding: 8px 16px; min-width: auto; background: var(--accent); color: var(--bg); font-weight: bold;">✨ Form</button>
+        <button id="btn-explode" class="switcher-btn" style="padding: 8px 16px; min-width: auto; background: var(--accent-2); color: #fff; font-weight: bold;">💥 Explode</button>
+        <button id="btn-clear" class="switcher-btn" style="padding: 8px 16px; min-width: auto; background: var(--bg-panel); border: 1px solid var(--border); color: var(--fg-muted);">❌ Clear</button>
+      </div>
+      <p class="name-input-hint">Type name and click <kbd>Form</kbd> or press <kbd>Enter</kbd></p>
     `;
 
     this.showOverlay(wrapper);
@@ -103,6 +109,29 @@ export default class NameParticlesExperiment extends Experiment {
       } else if (e.key === 'Backspace' && !this.targetText && this.currentText) {
         this.clearName();
       }
+    });
+
+    const formBtn = document.getElementById('btn-form');
+    const explodeBtn = document.getElementById('btn-explode');
+    const clearBtn = document.getElementById('btn-clear');
+
+    formBtn?.addEventListener('click', () => {
+      if (!this.targetText && this.textInput?.value) {
+        this.targetText = this.textInput.value.toUpperCase().slice(0, 20);
+      }
+      if (!this.targetText) {
+        this.targetText = "CHAOS LAB";
+        if (this.textInput) this.textInput.value = "CHAOS LAB";
+      }
+      this.formName();
+    });
+
+    explodeBtn?.addEventListener('click', () => {
+      this.explodeName();
+    });
+
+    clearBtn?.addEventListener('click', () => {
+      this.clearName();
     });
 
     // Focus input on init
@@ -334,8 +363,11 @@ export default class NameParticlesExperiment extends Experiment {
   render() {
     const ctx = this.ctx;
 
-    // Clear with dark background
-    ctx.fillStyle = '#0a0a0f';
+    // Clear
+    ctx.clearRect(0, 0, this.width, this.height);
+
+    // Dark background panel
+    ctx.fillStyle = '#11111a';
     ctx.fillRect(0, 0, this.width, this.height);
 
     // Draw background particles

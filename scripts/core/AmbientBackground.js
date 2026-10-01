@@ -3,7 +3,7 @@
  * Subtle animated background for the bg-canvas
  */
 
-import { random, lerp, hslToCss } from './utils.js';
+import { random, randomChoice, lerp, hslToCss } from './utils.js';
 
 export class AmbientBackground {
   constructor(canvas) {
@@ -182,15 +182,6 @@ export class AmbientBackground {
       ctx.restore();
     }
   }
-}
-
-// Need to import randomChoice
-function randomChoice(arr) {
-  return arr[Math.floor(Math.random() * arr.length)];
-}
-
-function random(min, max) {
-  return Math.random() * (max - min) + min;
 }
 
 export default AmbientBackground;

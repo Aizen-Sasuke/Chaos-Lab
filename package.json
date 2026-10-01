@@ -1,0 +1,14 @@
+{
+  "name": "chaos-lab",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "echo 'No build required for static site'",
+    "lint": "echo 'No linter configured'"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}
