@@ -481,6 +481,14 @@ export class TextParticleizer {
   }
 
   /**
+   * Extract the px size from a CSS font shorthand like "bold 112.2px Space Grotesk"
+   */
+  getFontSize() {
+    const match = this.font.match(/(\d+(?:\.\d+)?)px/);
+    return match ? parseFloat(match[1]) : 0;
+  }
+
+  /**
    * Generate particles from text
    */
   generate() {
@@ -489,7 +497,7 @@ export class TextParticleizer {
     this.ctx.font = this.font;
     const metrics = this.ctx.measureText(this.text);
     const textWidth = metrics.width;
-    const textHeight = parseInt(this.font) * 1.2;
+    const textHeight = this.getFontSize() * 1.2;
 
     // Size canvas
     const padding = 20;
@@ -539,7 +547,7 @@ export class TextParticleizer {
     const metrics = this.ctx.measureText(this.text);
     return {
       width: metrics.width,
-      height: parseInt(this.font) * 1.2
+      height: this.getFontSize() * 1.2
     };
   }
 }

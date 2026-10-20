@@ -56,6 +56,10 @@ export class NameParticlesExperiment extends Experiment {
       colors: PARTICLE_COLORS
     });
 
+    // Sync the font to the canvas-derived size (the init-time resize() ran before this existed)
+    this.fontSize = clamp(this.width * 0.15, this.minFontSize, this.maxFontSize);
+    this.textParticleizer.setFont(`bold ${this.fontSize}px Space Grotesk`);
+
     // Create input overlay
     this.createInputOverlay();
 
@@ -163,6 +167,7 @@ export class NameParticlesExperiment extends Experiment {
     this.isExploding = false;
 
     // Generate target positions from text
+    this.textParticleizer.setText(this.currentText);
     const particleData = this.textParticleizer.generate();
     this.nameParticles = particleData.map((data, i) => new Particle({
       x: this.width / 2 + random(-100, 100),
@@ -463,6 +468,9 @@ export class NameParticlesExperiment extends Experiment {
 
   resize() {
     super.resize();
+
+    // The particleizer is created after super.init() runs, so it may not exist yet
+    if (!this.textParticleizer) return;
 
     // Update text particleizer font size based on canvas width
     const newFontSize = clamp(this.width * 0.15, this.minFontSize, this.maxFontSize);
