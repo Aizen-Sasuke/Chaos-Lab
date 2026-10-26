@@ -14,6 +14,8 @@ export class Particle {
     this.id = options.id || Math.random().toString(36).slice(2);
     this.x = options.x || 0;
     this.y = options.y || 0;
+    this.targetX = options.targetX !== undefined ? options.targetX : this.x;
+    this.targetY = options.targetY !== undefined ? options.targetY : this.y;
     this.vx = options.vx || 0;
     this.vy = options.vy || 0;
     this.ax = 0;
@@ -29,7 +31,8 @@ export class Particle {
 
     this.color = options.color || getRandomAccent();
     this.alpha = options.alpha !== undefined ? options.alpha : 1;
-    this.fadeRate = options.fadeRate || 0.01;
+    // 0 is a meaningful fadeRate (no fade), so don't use `||`
+    this.fadeRate = options.fadeRate !== undefined ? options.fadeRate : 0.01;
 
     this.rotation = options.rotation || 0;
     this.rotationSpeed = options.rotationSpeed || 0;
@@ -108,8 +111,13 @@ export class Particle {
     this.vx += this.ax * dt * 60;
     this.vy += this.ay * dt * 60;
 
-    this.vx *= this.drag;
-    this.vy *= this.drag;
+    // Drag is defined per 60fps frame, so convert it to a time-based factor;
+    // otherwise particles decelerate much faster on 120/144Hz displays.
+    if (this.drag !== 1) {
+      const dragFactor = Math.pow(this.drag, dt * 60);
+      this.vx *= dragFactor;
+      this.vy *= dragFactor;
+    }
 
     this.vy += this.gravity * dt * 60;
 
@@ -311,6 +319,17 @@ export class ParticlePool {
     // Reset particle properties
     particle.age = 0;
     particle.active = true;
+    particle.ax = 0;
+    particle.ay = 0;
+    particle.rotation = 0;
+    particle.rotationSpeed = 0;
+    particle.gravity = 0;
+    particle.shape = 'circle';
+    // Clear stale targets from previous uses of this pooled particle.
+    particle.targetX = options.targetX !== undefined ? options.targetX : 0;
+    particle.targetY = options.targetY !== undefined ? options.targetY : 0;
+    particle.data = {};
+    particle.trailPositions.length = 0;
     particle.alpha = options.alpha !== undefined ? options.alpha : 1;
     particle.life = options.life !== undefined ? options.life : 1;
     particle.maxLife = options.maxLife !== undefined ? options.maxLife : particle.life;
@@ -542,9 +561,9 @@ export class TextParticleizer {
   /**
    * Get text bounds
    */
-  getBounds() {
+  getBounds(text = this.text) {
     this.ctx.font = this.font;
-    const metrics = this.ctx.measureText(this.text);
+    const metrics = this.ctx.measureText(text);
     return {
       width: metrics.width,
       height: this.getFontSize() * 1.2
@@ -563,6 +582,14 @@ export class ForceField {
     this.strength = options.strength || 1000;
     this.radius = options.radius || 300;
     this.type = options.type || 'attract'; // attract, repel, vortex, noise
+    this.softening = options.softening !== undefined ? options.softening : 70;
+    // Tangential multiplier used by attract to bend a pull into an orbit.
+    this.orbit = options.orbit !== undefined ? options.orbit : 0;
+    // Radial inward fraction used by vortex to keep the swirl centred.
+    this.inward = options.inward !== undefined ? options.inward : 0.15;
+    // Speed cap in px/second. Prevents close encounters from slingshotting
+    // particles across the canvas.
+    this.maxSpeed = options.maxSpeed !== undefined ? options.maxSpeed : 0;
     this.noiseScale = options.noiseScale || 0.01;
     this.noiseTime = 0;
   }
@@ -572,49 +599,90 @@ export class ForceField {
     this.y = y;
   }
 
-  applyTo(particle, dt) {
+  /**
+   * Apply this field to a particle.
+   * @param {Particle} particle
+   * @param {number} dt seconds
+   * @param {number} boost multiplier for held pointer / boost state
+   */
+  applyTo(particle, dt, boost = 1) {
     const dx = this.x - particle.x;
     const dy = this.y - particle.y;
     const dist = Math.hypot(dx, dy);
 
     if (dist === 0 || dist > this.radius) return;
 
-    const normalizedDist = dist / this.radius;
-    let force = 0;
+    const nx = dx / dist;
+    const ny = dy / dist;
+    const falloff = 1 - dist / this.radius;
+    if (falloff <= 0) return;
+
+    // Softened distances keep inverse-square terms finite directly under the
+    // cursor. A real inverse-square curve makes close particles explode.
+    const softDist = dist + this.softening;
+    const invSq = 1 / (softDist * softDist);
+    const inv = 1 / softDist;
+    const strength = this.strength * boost;
+    const step = dt * 60;
 
     switch (this.type) {
-      case 'attract':
-        force = this.strength * (1 - normalizedDist) / (dist * dist);
-        particle.vx += (dx / dist) * force * dt * 60;
-        particle.vy += (dy / dist) * force * dt * 60;
+      case 'attract': {
+        // A strong tangential component turns the inward pull into an orbit
+        // instead of a straight-line collapse.
+        const radial = strength * falloff * invSq;
+        const tangential = radial * this.orbit;
+        particle.vx += (nx * radial - ny * tangential) * step;
+        particle.vy += (ny * radial + nx * tangential) * step;
         break;
+      }
 
-      case 'repel':
-        force = this.strength * (1 - normalizedDist) / (dist * dist);
-        particle.vx -= (dx / dist) * force * dt * 60;
-        particle.vy -= (dy / dist) * force * dt * 60;
+      case 'repel': {
+        // Pure outward force. With the speed cap this clears a readable hole
+        // around the cursor without launching particles off-screen.
+        const push = strength * falloff * invSq;
+        particle.vx -= nx * push * step;
+        particle.vy -= ny * push * step;
         break;
+      }
 
-      case 'vortex':
-        // Tangential force for vortex effect
-        const tangentX = -dy / dist;
-        const tangentY = dx / dist;
-        force = this.strength * (1 - normalizedDist) / dist;
-        particle.vx += tangentX * force * dt * 60;
-        particle.vy += tangentY * force * dt * 60;
-        // Also slight attraction to center
-        particle.vx += (dx / dist) * force * 0.1 * dt * 60;
-        particle.vy += (dy / dist) * force * 0.1 * dt * 60;
+      case 'vortex': {
+        // Tangential force falls off with 1/d, which gives an even-looking
+        // swirl (inner particles spin faster, outer ones slower).
+        const tangential = strength * falloff * inv;
+        particle.vx += -ny * tangential * step;
+        particle.vy += nx * tangential * step;
+        // A little inward pull stops the swirl from spraying outwards.
+        const inward = tangential * this.inward;
+        particle.vx += nx * inward * step;
+        particle.vy += ny * inward * step;
         break;
+      }
 
-      case 'noise':
+      case 'noise': {
         this.noiseTime += dt;
         const noise = this.noise2D(particle.x * this.noiseScale, particle.y * this.noiseScale + this.noiseTime);
         const angle = noise * Math.PI * 2;
-        force = this.strength * (1 - normalizedDist);
-        particle.vx += Math.cos(angle) * force * dt * 60;
-        particle.vy += Math.sin(angle) * force * dt * 60;
+        const force = strength * falloff;
+        particle.vx += Math.cos(angle) * force * step;
+        particle.vy += Math.sin(angle) * force * step;
         break;
+      }
+    }
+
+    this.limitSpeed(particle);
+  }
+
+  /**
+   * Clamp a particle's speed to maxSpeed (px/second).
+   */
+  limitSpeed(particle) {
+    if (!this.maxSpeed || this.maxSpeed <= 0) return;
+    const maxPerFrame = this.maxSpeed / 60;
+    const speed = Math.hypot(particle.vx, particle.vy);
+    if (speed > maxPerFrame) {
+      const scale = maxPerFrame / speed;
+      particle.vx *= scale;
+      particle.vy *= scale;
     }
   }
 

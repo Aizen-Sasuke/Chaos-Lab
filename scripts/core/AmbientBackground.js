@@ -3,7 +3,7 @@
  * Subtle animated background for the bg-canvas
  */
 
-import { random, randomChoice, lerp, hslToCss } from './utils.js';
+import { random, randomChoice, lerp, hslToCss, prefersReducedMotion } from './utils.js';
 
 export class AmbientBackground {
   constructor(canvas) {
@@ -33,7 +33,7 @@ export class AmbientBackground {
 
   resize() {
     const rect = this.canvas.getBoundingClientRect();
-    this.dpr = window.devicePixelRatio || 1;
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.width = Math.max(1, Math.floor(rect.width));
     this.height = Math.max(1, Math.floor(rect.height));
     this.canvas.width = this.width * this.dpr;
@@ -44,7 +44,8 @@ export class AmbientBackground {
   }
 
   createParticles() {
-    const count = Math.min(60, Math.floor((this.width * this.height) / 15000));
+    const reduced = prefersReducedMotion();
+    const count = reduced ? 12 : Math.min(60, Math.floor((this.width * this.height) / 15000));
     this.particles = [];
 
     for (let i = 0; i < count; i++) {
@@ -83,19 +84,24 @@ export class AmbientBackground {
 
   stop() {
     this.running = false;
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
     window.removeEventListener('resize', this.resizeHandler);
   }
 
   animate = (time = 0) => {
     if (!this.running) return;
 
-    const dt = (time - this.time) / 1000;
+    const rawDt = (time - this.time) / 1000;
+    const dt = Number.isFinite(rawDt) ? Math.min(Math.max(rawDt, 0), 0.05) : 1 / 60;
     this.time = time;
 
     this.update(dt);
     this.render();
 
-    requestAnimationFrame(this.animate);
+    this.rafId = requestAnimationFrame(this.animate);
   };
 
   update(dt) {
@@ -117,8 +123,9 @@ export class AmbientBackground {
       // Subtle drift
       p.vx += (random() - 0.5) * 0.001;
       p.vy += (random() - 0.5) * 0.001;
-      p.vx *= 0.999;
-      p.vy *= 0.999;
+      const drift = Math.pow(0.999, dt * 60);
+      p.vx *= drift;
+      p.vy *= drift;
     });
 
     // Update scan lines

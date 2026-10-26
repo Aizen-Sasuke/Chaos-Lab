@@ -25,7 +25,7 @@ export class Experiment extends EventEmitter {
     this.resizeHandler = null;
     this.pointerHandler = null;
     this.keyboardHandler = null;
-    this.overlay = null;
+    this.hud = null;
   }
 
   /**
@@ -48,12 +48,21 @@ export class Experiment extends EventEmitter {
     this.canvas = document.createElement('canvas');
     this.canvas.className = 'experiment-canvas';
     this.canvas.id = `exp-${this.id}`;
+    this.canvas.setAttribute('aria-label', `${this.name} experiment`);
     this.ctx = this.canvas.getContext('2d', {
       alpha: true,
       desynchronized: true,
       willReadFrequently: false
     });
     this.container.appendChild(this.canvas);
+
+    // Experiment UI lives in a HUD layer that is sized to the canvas rather
+    // than the whole window. It never covers the play area and is transparent
+    // to pointer events except for its interactive children.
+    this.hud = document.createElement('div');
+    this.hud.className = 'experiment-hud';
+    this.container.appendChild(this.hud);
+
     this.resize();
   }
 
@@ -64,14 +73,14 @@ export class Experiment extends EventEmitter {
     this.resizeHandler = this.handleResize.bind(this);
     window.addEventListener('resize', this.resizeHandler);
 
-    // Pointer events (mouse + touch)
+    // Pointer events (mouse + touch). Movement stays canvas-scoped so cursor
+    // coordinates are always canvas-relative; pointerup is bound on the window
+    // only (canvas events bubble) so a drag released outside still ends.
     this.pointerHandler = this.handlePointer.bind(this);
     this.canvas.addEventListener('pointermove', this.pointerHandler);
     this.canvas.addEventListener('pointerdown', this.pointerHandler);
-    this.canvas.addEventListener('pointerup', this.pointerHandler);
     this.canvas.addEventListener('pointerleave', this.pointerHandler);
     this.canvas.addEventListener('pointercancel', this.pointerHandler);
-    window.addEventListener('pointermove', this.pointerHandler);
     window.addEventListener('pointerup', this.pointerHandler);
 
     // Keyboard events
@@ -94,13 +103,24 @@ export class Experiment extends EventEmitter {
     if (!this.canvas || !this.container) return;
 
     const rect = this.container.getBoundingClientRect();
-    this.dpr = window.devicePixelRatio || 1;
+    // Cap DPR at 2: on 3x phones the canvas otherwise renders 9x the pixels
+    this.dpr = Math.min(window.devicePixelRatio || 1, 2);
 
-    const containerW = Math.floor(rect.width) || window.innerWidth || 800;
-    const containerH = Math.floor(rect.height) || Math.max(500, window.innerHeight - 200);
+    // The canvas is laid out inside the container's content box. Using the
+    // border-box width here would make the inline size larger than the CSS
+    // max-width, so the browser would scale the bitmap down and pointer
+    // coordinates would stop matching simulation coordinates.
+    const styles = getComputedStyle(this.container);
+    const padX = (parseFloat(styles.paddingLeft) || 0) + (parseFloat(styles.paddingRight) || 0);
+    const padY = (parseFloat(styles.paddingTop) || 0) + (parseFloat(styles.paddingBottom) || 0);
+    const contentW = Math.floor(this.container.clientWidth - padX);
+    const contentH = Math.floor(this.container.clientHeight - padY);
 
-    this.width = Math.max(300, containerW);
-    this.height = Math.max(300, containerH);
+    const containerW = contentW > 0 ? contentW : (Math.floor(rect.width) || window.innerWidth || 800);
+    const containerH = contentH > 0 ? contentH : (Math.floor(rect.height) || Math.max(400, window.innerHeight - 200));
+
+    this.width = Math.max(1, containerW);
+    this.height = Math.max(1, containerH);
 
     this.canvas.width = this.width * this.dpr;
     this.canvas.height = this.height * this.dpr;
@@ -108,6 +128,19 @@ export class Experiment extends EventEmitter {
     this.canvas.style.height = `${this.height}px`;
 
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+
+    // Align the HUD with the canvas' rendered rect. The canvas can be clamped
+    // by max-width/max-height and centred by the flex viewport, so measuring
+    // is more reliable than copying the canvas' inline size.
+    if (this.hud) {
+      const hostRect = this.container.getBoundingClientRect();
+      const canvasRect = this.canvas.getBoundingClientRect();
+      this.hud.style.left = `${canvasRect.left - hostRect.left}px`;
+      this.hud.style.top = `${canvasRect.top - hostRect.top}px`;
+      this.hud.style.width = `${canvasRect.width}px`;
+      this.hud.style.height = `${canvasRect.height}px`;
+    }
+
     this.emit('resize', { width: this.width, height: this.height });
   }
 
@@ -169,7 +202,9 @@ export class Experiment extends EventEmitter {
     if (!this.running || this.destroyed) return;
 
     if (!this.paused) {
-      const dt = this.lastTime ? (time - this.lastTime) / 1000 : 1/60;
+      const rawDt = this.lastTime ? (time - this.lastTime) / 1000 : 1 / 60;
+      // Clamp so a background tab or a long frame can't teleport the simulation
+      const dt = Number.isFinite(rawDt) ? Math.min(Math.max(rawDt, 0), 0.05) : 1 / 60;
       this.lastTime = time;
 
       this.update(dt);
@@ -249,14 +284,12 @@ export class Experiment extends EventEmitter {
    * Show overlay content (for experiment-specific UI)
    */
   showOverlay(content) {
-    const overlay = document.getElementById('overlay');
-    if (overlay) {
-      overlay.innerHTML = '';
-      if (typeof content === 'string') {
-        overlay.innerHTML = content;
-      } else if (content instanceof Node) {
-        overlay.appendChild(content);
-      }
+    if (!this.hud) return;
+    this.hud.innerHTML = '';
+    if (typeof content === 'string') {
+      this.hud.innerHTML = content;
+    } else if (content instanceof Node) {
+      this.hud.appendChild(content);
     }
   }
 
@@ -264,9 +297,8 @@ export class Experiment extends EventEmitter {
    * Hide overlay
    */
   hideOverlay() {
-    const overlay = document.getElementById('overlay');
-    if (overlay) {
-      overlay.innerHTML = '';
+    if (this.hud) {
+      this.hud.innerHTML = '';
     }
   }
 
@@ -315,11 +347,9 @@ export class Experiment extends EventEmitter {
       if (this.canvas) {
         this.canvas.removeEventListener('pointermove', this.pointerHandler);
         this.canvas.removeEventListener('pointerdown', this.pointerHandler);
-        this.canvas.removeEventListener('pointerup', this.pointerHandler);
         this.canvas.removeEventListener('pointerleave', this.pointerHandler);
         this.canvas.removeEventListener('pointercancel', this.pointerHandler);
       }
-      window.removeEventListener('pointermove', this.pointerHandler);
       window.removeEventListener('pointerup', this.pointerHandler);
     }
     if (this.keyboardHandler) {
@@ -332,9 +362,22 @@ export class Experiment extends EventEmitter {
     }
 
     this.hideOverlay();
+    if (this.hud && this.hud.parentNode) {
+      this.hud.parentNode.removeChild(this.hud);
+    }
+    this.hud = null;
     this.hidePauseIndicator();
-    this.clear(); // Clear all event listeners from EventEmitter
+    // Emit before clearing so listeners actually receive the event
     this.emit('destroy');
+    this.clear(); // Clear all event listeners from EventEmitter
+  }
+
+  /**
+   * Number of live particles, used by the shared stats readout.
+   * Override in subclasses.
+   */
+  getParticleCount() {
+    return 0;
   }
 
   /**
@@ -346,7 +389,8 @@ export class Experiment extends EventEmitter {
       running: this.running,
       paused: this.paused,
       width: this.width,
-      height: this.height
+      height: this.height,
+      particleCount: this.getParticleCount()
     };
   }
 }

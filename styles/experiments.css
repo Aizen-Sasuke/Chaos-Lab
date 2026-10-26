@@ -12,6 +12,24 @@
 }
 
 /* ========================================
+   Experiment HUD Layer
+   Sized and positioned to the canvas by Experiment.resize().
+   ======================================== */
+.experiment-hud {
+  position: absolute;
+  z-index: 5;
+  pointer-events: none;
+}
+
+/* Only real controls should receive pointers; the rest of the HUD stays
+   transparent so the canvas underneath can be interacted with. */
+.experiment-hud button,
+.experiment-hud input,
+.experiment-hud .name-input-wrapper {
+  pointer-events: auto;
+}
+
+/* ========================================
    Cursor Gravity Experiment
    ======================================== */
 #exp-cursor-gravity {
@@ -317,7 +335,7 @@
    Print Styles
    ======================================== */
 @media print {
-  .header, .switcher, .footer, .overlay, .bg-canvas {
+  .header, .switcher, .footer, .experiment-hud, .bg-canvas {
     display: none !important;
   }
   .viewport {

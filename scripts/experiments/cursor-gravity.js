@@ -5,7 +5,7 @@
 
 import { Experiment } from '../core/Experiment.js';
 import { Particle, ParticlePool, ForceField, SpatialGrid } from '../core/ParticleSystem.js';
-import { random, randomChoice, clamp, lerp, hslToCss, getRandomAccent } from '../core/utils.js';
+import { random, randomChoice, clamp, hslToCss, prefersReducedMotion } from '../core/utils.js';
 
 const COLORS = [
   '#00ffc8', // cyan
@@ -16,9 +16,18 @@ const COLORS = [
 ];
 
 const PARTICLE_COUNT = 800;
-const GRAVITY_STRENGTH = 8000;
-const GRAVITY_RADIUS = 400;
-const VORTEX_STRENGTH = 3000;
+const FORCE_RADIUS = 400;
+const FORCE_SOFTENING = 70;
+const ATTRACT_STRENGTH = 9000;
+const REPEL_STRENGTH = 9000;
+const VORTEX_STRENGTH = 34;
+const HOLD_BOOST = 2.1;
+
+const MODE_META = {
+  attract: { label: 'Attract', hint: 'particles are pulled in and orbit the cursor' },
+  repel: { label: 'Repel', hint: 'particles flee, leaving a clear hole' },
+  vortex: { label: 'Vortex', hint: 'particles swirl around the cursor' }
+};
 
 export class CursorGravityExperiment extends Experiment {
   constructor(options = {}) {
@@ -30,13 +39,9 @@ export class CursorGravityExperiment extends Experiment {
     this.mouseX = 0;
     this.mouseY = 0;
     this.mouseDown = false;
-    this.mouseButton = 0;
     this.mode = 'attract'; // attract, repel, vortex
     this.modeNames = ['attract', 'repel', 'vortex'];
-    this.trails = [];
-    this.maxTrails = 50;
     this.colorCycle = 0;
-    this.showInfo = true;
   }
 
   async init(container) {
@@ -46,30 +51,42 @@ export class CursorGravityExperiment extends Experiment {
     this.forceField = new ForceField({
       x: this.width / 2,
       y: this.height / 2,
-      strength: GRAVITY_STRENGTH,
-      radius: GRAVITY_RADIUS,
+      strength: ATTRACT_STRENGTH,
+      radius: FORCE_RADIUS,
+      softening: FORCE_SOFTENING,
+      orbit: 0.35,
+      inward: 1.2,
+      maxSpeed: 520,
       type: 'attract'
     });
 
+    // Start with the cursor at the centre instead of (0, 0), otherwise the
+    // whole field pulls the particles into the top-left corner on load.
+    this.mouseX = this.width / 2;
+    this.mouseY = this.height / 2;
+
     // Create particle pool
+    const particleCount = prefersReducedMotion() ? Math.floor(PARTICLE_COUNT / 4) : PARTICLE_COUNT;
     this.pool = new ParticlePool(() => new Particle({
       radius: random(1.5, 4),
       color: randomChoice(COLORS),
-      drag: 0.96,
+      // Low drag keeps orbital velocity alive instead of turning every mode
+      // into "particles stick to the cursor".
+      drag: 0.985,
       gravity: 0,
       bounce: 0.8,
       friction: 0.99
-    }), PARTICLE_COUNT);
+    }), particleCount);
 
     // Initialize particles distributed across canvas
-    const w = Math.max(300, this.width);
-    const h = Math.max(300, this.height);
-    for (let i = 0; i < PARTICLE_COUNT; i++) {
+    const w = Math.max(1, this.width);
+    const h = Math.max(1, this.height);
+    for (let i = 0; i < particleCount; i++) {
       const p = this.pool.acquire({
         x: random(0, w),
         y: random(0, h),
-        vx: random(-20, 20),
-        vy: random(-20, 20),
+        vx: random(-6, 6),
+        vy: random(-6, 6),
         life: Infinity,
         maxLife: Infinity,
         fadeRate: 0
@@ -79,86 +96,128 @@ export class CursorGravityExperiment extends Experiment {
 
     // Bind specific events
     this.canvas.addEventListener('contextmenu', e => e.preventDefault());
-    this.canvas.addEventListener('mousedown', e => {
-      this.mouseDown = true;
-      this.mouseButton = e.button;
-    });
-    this.canvas.addEventListener('mouseup', e => {
-      this.mouseDown = false;
-    });
     this.canvas.addEventListener('wheel', e => {
       e.preventDefault();
       this.cycleMode(e.deltaY > 0 ? 1 : -1);
     }, { passive: false });
 
-    // Show info overlay
+    // Show the mode HUD, then sync it with the initial mode.
     this.showOverlay(this.createInfoOverlay());
-
-    // Update stats
-    this.updateStats();
+    this.applyModeSettings();
+    this.updateInfoOverlay();
 
     return this;
   }
 
   createInfoOverlay() {
-    const div = document.createElement('div');
-    div.className = 'gravity-info';
-    div.innerHTML = `
-      <p>Move mouse to attract particles</p>
-      <p><kbd>Click</kbd> Hold to ${this.getModeAction()}</p>
-      <p><kbd>Scroll</kbd> / <kbd>Right-click</kbd> Cycle mode</p>
-      <p><kbd>Space</kbd> Pause</p>
+    const wrap = document.createElement('div');
+    wrap.className = 'gravity-hud';
+    wrap.innerHTML = `
+      <div class="gravity-mode-display">
+        <span class="gravity-mode-kicker">MODE</span>
+        <strong class="gravity-mode-name" id="gravity-mode-name">Attract</strong>
+        <span class="gravity-mode-hint" id="gravity-mode-hint">${MODE_META.attract.hint}</span>
+      </div>
+      <div class="gravity-modes" role="group" aria-label="Force mode">
+        <button type="button" class="gravity-chip" data-mode="attract" aria-pressed="true">Attract</button>
+        <button type="button" class="gravity-chip" data-mode="repel" aria-pressed="false">Repel</button>
+        <button type="button" class="gravity-chip" data-mode="vortex" aria-pressed="false">Vortex</button>
+      </div>
+      <p class="gravity-hint">
+        Move the cursor · <strong>Hold</strong> to boost · <kbd>Scroll</kbd> / <kbd>Right-click</kbd> to switch
+      </p>
     `;
-    return div;
+
+    wrap.querySelectorAll('.gravity-chip').forEach(btn => {
+      btn.addEventListener('click', () => this.setMode(btn.dataset.mode));
+    });
+
+    return wrap;
   }
 
-  getModeAction() {
+  setMode(mode, { announce = true } = {}) {
+    if (!this.modeNames.includes(mode)) return;
+    this.mode = mode;
+    this.applyModeSettings();
+    this.updateInfoOverlay();
+    if (announce) {
+      this.showToast(`Mode: ${MODE_META[mode].label.toUpperCase()}`, 'info', 1200);
+    }
+  }
+
+  applyModeSettings() {
+    if (!this.forceField) return;
+
+    this.forceField.type = this.mode;
     switch (this.mode) {
-      case 'attract': return 'attract';
-      case 'repel': return 'repel';
-      case 'vortex': return 'vortex spin';
+      case 'attract':
+        this.forceField.strength = ATTRACT_STRENGTH;
+        this.forceField.orbit = 0.35;
+        this.forceField.inward = 2.2;
+        this.forceField.maxSpeed = 520;
+        break;
+      case 'repel':
+        this.forceField.strength = REPEL_STRENGTH;
+        this.forceField.orbit = 0;
+        this.forceField.inward = 0;
+        this.forceField.maxSpeed = 560;
+        break;
+      case 'vortex':
+        this.forceField.strength = VORTEX_STRENGTH;
+        this.forceField.orbit = 0;
+        this.forceField.inward = 1.2;
+        this.forceField.maxSpeed = 560;
+        break;
     }
   }
 
   cycleMode(direction = 1) {
     const idx = this.modeNames.indexOf(this.mode);
     const newIdx = (idx + direction + this.modeNames.length) % this.modeNames.length;
-    this.mode = this.modeNames[newIdx];
-    this.forceField.type = this.mode;
-    this.forceField.strength = this.mode === 'vortex' ? VORTEX_STRENGTH : GRAVITY_STRENGTH;
-
-    this.showToast(`Mode: ${this.mode.toUpperCase()}`, 'info', 1500);
-    this.updateInfoOverlay();
+    this.setMode(this.modeNames[newIdx]);
   }
 
   updateInfoOverlay() {
-    const overlay = document.getElementById('overlay');
-    if (overlay) {
-      overlay.querySelector('p:nth-child(2)').innerHTML = `<kbd>Click</kbd> Hold to ${this.getModeAction()}`;
-    }
+    if (!this.hud) return;
+
+    const meta = MODE_META[this.mode];
+    const nameEl = this.hud.querySelector('#gravity-mode-name');
+    const hintEl = this.hud.querySelector('#gravity-mode-hint');
+    if (nameEl) nameEl.textContent = meta.label;
+    if (hintEl) hintEl.textContent = meta.hint;
+
+    this.hud.querySelectorAll('.gravity-chip').forEach(btn => {
+      const active = btn.dataset.mode === this.mode;
+      btn.classList.toggle('active', active);
+      btn.setAttribute('aria-pressed', String(active));
+    });
   }
 
   handlePointer(event) {
     super.handlePointer(event);
+
+    // Release events can arrive from anywhere on the page (e.g. a HUD chip),
+    // so only end the boost and leave the field where the cursor last was.
+    if (event.type === 'pointerup' || event.type === 'pointercancel' || event.type === 'pointerleave') {
+      this.mouseDown = false;
+      return;
+    }
 
     const rect = this.canvas.getBoundingClientRect();
     this.mouseX = event.clientX - rect.left;
     this.mouseY = event.clientY - rect.top;
 
     this.forceField.setPosition(this.mouseX, this.mouseY);
+    this.canvas.style.setProperty('--mouse-x', `${this.mouseX}px`);
+    this.canvas.style.setProperty('--mouse-y', `${this.mouseY}px`);
 
-    // Right click cycles mode
-    if (event.type === 'pointerdown' && event.button === 2) {
-      this.cycleMode();
-    }
-  }
-
-  handleKeyboard(event) {
-    super.handleKeyboard(event);
-
-    if (event.key === ' ') {
-      event.preventDefault();
-      this.togglePause();
+    if (event.type === 'pointerdown') {
+      // Right click cycles mode; left click / touch holds the current mode.
+      if (event.button === 2) {
+        this.cycleMode();
+      } else {
+        this.mouseDown = true;
+      }
     }
   }
 
@@ -168,29 +227,24 @@ export class CursorGravityExperiment extends Experiment {
     // Update force field position to mouse
     this.forceField.setPosition(this.mouseX, this.mouseY);
 
+    const now = performance.now();
+    const reduced = prefersReducedMotion();
+
     // Apply forces to all particles
     this.particles.forEach(p => {
       if (!p.active) return;
 
-      // Apply force field
-      this.forceField.applyTo(p, dt);
+      // Apply force field. Holding the pointer boosts whichever mode is
+      // active instead of adding a second, unrelated force.
+      this.forceField.applyTo(p, dt, this.mouseDown ? HOLD_BOOST : 1);
 
-      // Subtle noise for organic motion
-      const noise = Math.sin(p.x * 0.005 + performance.now() * 0.001) *
-                   Math.cos(p.y * 0.005 + performance.now() * 0.0013);
-      p.vx += noise * 10 * dt * 60;
-      p.vy += noise * 10 * dt * 60;
-
-      // Mouse down adds extra force
-      if (this.mouseDown) {
-        const dx = this.mouseX - p.x;
-        const dy = this.mouseY - p.y;
-        const dist = Math.hypot(dx, dy);
-        if (dist > 5 && dist < GRAVITY_RADIUS * 1.5) {
-          const force = (this.mode === 'repel' ? -1 : 1) * 5000 / (dist * dist);
-          p.vx += (dx / dist) * force * dt * 60;
-          p.vy += (dy / dist) * force * dt * 60;
-        }
+      // A whisper of noise keeps the motion organic. Anything larger drowns
+      // out the mode forces and makes all three modes look like a random boil.
+      if (!reduced) {
+        const noise = Math.sin(p.x * 0.005 + now * 0.001) *
+                     Math.cos(p.y * 0.005 + now * 0.0013);
+        p.vx += noise * 0.05 * dt * 60;
+        p.vy += noise * 0.05 * dt * 60;
       }
 
       // Update particle
@@ -205,15 +259,10 @@ export class CursorGravityExperiment extends Experiment {
 
     // Color cycling
     this.colorCycle += dt * 0.1;
-
-    this.updateStats();
   }
 
-  updateStats() {
-    const statCount = document.getElementById('particle-count');
-    if (statCount) {
-      statCount.textContent = this.particles.filter(p => p.active).length;
-    }
+  getParticleCount() {
+    return this.particles.reduce((count, p) => count + (p.active ? 1 : 0), 0);
   }
 
   render() {
@@ -242,10 +291,17 @@ export class CursorGravityExperiment extends Experiment {
       ctx.save();
       ctx.globalAlpha = 0.8;
 
-      // Glow effect for fast particles
+      // Cheap glow for fast particles: a translucent additive halo.
+      // ctx.shadowBlur is far too expensive to set per particle.
       if (speed > 100) {
-        ctx.shadowColor = hslToCss(hue, saturation, lightness);
-        ctx.shadowBlur = 10;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.fillStyle = hslToCss(hue, saturation, lightness);
+        ctx.globalAlpha = 0.12;
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, Math.min(p.radius * 2.4, 10), 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 0.8;
+        ctx.globalCompositeOperation = 'source-over';
       }
 
       p.draw(ctx);
@@ -301,6 +357,8 @@ export class CursorGravityExperiment extends Experiment {
   }
 
   drawConnections(ctx) {
+    if (prefersReducedMotion()) return;
+
     // Only draw connections occasionally for performance
     if (Math.random() > 0.02) return;
 
@@ -333,6 +391,7 @@ export class CursorGravityExperiment extends Experiment {
   }
 
   destroy() {
+    this.mouseDown = false;
     this.pool?.clear();
     this.particles.length = 0;
     super.destroy();

@@ -223,24 +223,6 @@
 }
 
 /* ========================================
-   Overlay (for experiment-specific UI)
-   ======================================== */
-.overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--z-overlay);
-  pointer-events: none;
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  padding: var(--space-xl);
-}
-
-.overlay > * {
-  pointer-events: auto;
-}
-
-/* ========================================
    Footer
    ======================================== */
 .footer {
@@ -265,39 +247,51 @@
    Experiment-specific UI Components
    ======================================== */
 
-/* Name Particle Input */
+/* Name Particle Input — docked to the bottom of the experiment */
 .name-input-wrapper {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-md);
+  transform: translateX(-50%);
   pointer-events: auto;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
-  padding: var(--space-xl);
-  background: var(--bg-panel);
+  align-items: stretch;
+  gap: 6px;
+  padding: 10px 12px;
+  width: min(640px, calc(100% - 32px));
+  background: rgba(22, 22, 31, 0.92);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  max-width: 90vw;
-  width: 400px;
-  animation: slide-up var(--slow) var(--ease-spring);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(12px);
+  animation: name-dock-in var(--slow) var(--ease-spring);
 }
 
-@keyframes slide-up {
+@keyframes name-dock-in {
   from {
     opacity: 0;
-    transform: translateY(20px);
+    transform: translate(-50%, 16px);
   }
   to {
     opacity: 1;
-    transform: translateY(0);
+    transform: translate(-50%, 0);
   }
 }
 
+.name-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+}
+
 .name-input {
-  width: 100%;
-  padding: var(--space-md) var(--space-lg);
+  flex: 1 1 180px;
+  min-width: 0;
+  padding: 10px 14px;
   font-family: var(--font-ui);
-  font-size: 1.25rem;
+  font-size: 1rem;
   font-weight: 500;
   text-align: center;
   letter-spacing: 0.05em;
@@ -318,9 +312,52 @@
   box-shadow: 0 0 0 4px var(--accent-glow);
 }
 
-.name-input-hint {
-  font-size: 0.75rem;
+.name-btn {
+  flex: 0 0 auto;
+  padding: 10px 14px;
+  font-family: var(--font-ui);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: transform var(--fast) var(--ease), background var(--fast) var(--ease);
+}
+
+.name-btn:hover {
+  transform: translateY(-1px);
+}
+
+.name-btn:active {
+  transform: translateY(0) scale(0.97);
+}
+
+.name-btn-form {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+.name-btn-explode {
+  background: var(--accent-2);
+  color: #fff;
+}
+
+.name-btn-clear {
+  background: var(--bg);
   color: var(--fg-muted);
+  border-color: var(--border);
+  padding: 10px 12px;
+}
+
+.name-btn-clear:hover {
+  color: var(--fg);
+  border-color: var(--border-bright);
+}
+
+.name-input-hint {
+  font-size: 0.6875rem;
+  color: var(--fg-subtle);
   text-align: center;
 }
 
@@ -329,12 +366,26 @@
 }
 
 /* Cursed Button */
-.cursed-btn-wrapper {
-  pointer-events: auto;
+.cursed-hud {
+  position: absolute;
+  top: var(--space-md);
+  left: var(--space-md);
+  pointer-events: none;
   display: flex;
   flex-direction: column;
-  align-items: center;
-  gap: var(--space-md);
+  gap: 4px;
+  padding: 10px 14px;
+  max-width: min(340px, calc(100% - 32px));
+  background: rgba(22, 22, 31, 0.72);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(8px);
+}
+
+.cursed-hint {
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--fg-subtle);
 }
 
 .cursed-btn {
@@ -430,6 +481,7 @@
 .cursed-stats {
   display: flex;
   gap: var(--space-lg);
+  flex-wrap: wrap;
   font-family: var(--font-mono);
   font-size: 0.75rem;
   color: var(--fg-subtle);
@@ -446,24 +498,114 @@
   font-weight: 700;
 }
 
-/* Cursor Gravity Info */
-.gravity-info {
-  pointer-events: auto;
-  text-align: center;
-  padding: var(--space-md) var(--space-lg);
-  background: var(--bg-panel);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  max-width: 300px;
+/* Cursor Gravity HUD */
+.gravity-hud {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
-.gravity-info p {
-  font-size: 0.8125rem;
+.gravity-mode-display {
+  position: absolute;
+  top: var(--space-md);
+  left: var(--space-md);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 14px;
+  max-width: 260px;
+  background: rgba(22, 22, 31, 0.72);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(8px);
+}
+
+.gravity-mode-kicker {
+  font-family: var(--font-mono);
+  font-size: 0.5625rem;
+  letter-spacing: 0.14em;
+  color: var(--fg-subtle);
+}
+
+.gravity-mode-name {
+  font-family: var(--font-mono);
+  font-size: 1.125rem;
+  line-height: 1.2;
+  color: var(--accent);
+  text-shadow: 0 0 14px var(--accent-glow);
+  text-transform: uppercase;
+}
+
+.gravity-mode-hint {
+  font-size: 0.6875rem;
+  line-height: 1.35;
   color: var(--fg-muted);
 }
 
-.gravity-info kbd {
-  margin: 0 var(--space-xs);
+.gravity-modes {
+  position: absolute;
+  top: var(--space-md);
+  right: var(--space-md);
+  display: flex;
+  gap: 6px;
+  pointer-events: none;
+}
+
+.gravity-chip {
+  pointer-events: auto;
+  padding: 8px 12px;
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  background: rgba(22, 22, 31, 0.78);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  transition: color var(--fast) var(--ease), background var(--fast) var(--ease),
+              border-color var(--fast) var(--ease), box-shadow var(--fast) var(--ease);
+}
+
+.gravity-chip:hover {
+  color: var(--fg);
+  border-color: var(--border-bright);
+}
+
+.gravity-chip.active {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
+.gravity-chip:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.gravity-hint {
+  position: absolute;
+  left: var(--space-md);
+  bottom: var(--space-md);
+  max-width: 360px;
+  padding: 8px 12px;
+  font-size: 0.6875rem;
+  line-height: 1.4;
+  color: var(--fg-muted);
+  background: rgba(22, 22, 31, 0.6);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.gravity-hint strong {
+  color: var(--accent);
+}
+
+.gravity-hint kbd {
+  font-size: 0.625rem;
+  padding: 1px 4px;
 }
 
 /* ========================================
@@ -471,9 +613,9 @@
    ======================================== */
 .toast {
   position: fixed;
-  bottom: var(--space-xl);
+  top: var(--space-lg);
   left: 50%;
-  transform: translateX(-50%) translateY(100px);
+  transform: translateX(-50%) translateY(-80px);
   z-index: var(--z-toast);
   padding: var(--space-md) var(--space-xl);
   background: var(--bg-panel);
@@ -552,8 +694,12 @@
   }
 
   .name-input-wrapper {
-    width: 90vw;
-    padding: var(--space-lg);
+    width: calc(100% - 24px);
+    padding: 10px;
+  }
+
+  .name-input-hint {
+    display: none;
   }
 }
 

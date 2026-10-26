@@ -57,26 +57,14 @@ function updateStats(time) {
     if (current) {
       const stats = current.getStats();
       if (fpsEl) fpsEl.textContent = stats.fps;
-      if (particleCountEl) particleCountEl.textContent = stats.running ? '—' : '0';
+      // Single writer for the counter. Experiments expose the number instead
+      // of writing to the DOM themselves.
+      if (particleCountEl) particleCountEl.textContent = stats.particleCount ?? 0;
     }
     lastStatsUpdate = time;
   }
   requestAnimationFrame(updateStats);
 }
-
-// ========================================
-// Global Keyboard Handler (Space to pause)
-// ========================================
-
-window.addEventListener('keydown', (e) => {
-  // Ignore if typing in input
-  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
-
-  if (e.key === ' ' || e.code === 'Space') {
-    e.preventDefault();
-    manager.togglePause();
-  }
-});
 
 // ========================================
 // Error Handling
@@ -94,15 +82,15 @@ window.addEventListener('unhandledrejection', (e) => {
 // Initialize
 // ========================================
 
+let ambientBg = null;
+
 async function init() {
   try {
     // Initialize ambient background
     const bgCanvas = document.getElementById('bg-canvas');
     if (bgCanvas) {
-      const ambientBg = new AmbientBackground(bgCanvas);
+      ambientBg = new AmbientBackground(bgCanvas);
       ambientBg.init();
-      // Store temporarily, will be added to CHAOS_LAB after init
-      window.__chaosAmbientBg = ambientBg;
     }
 
     // Show loading state
@@ -144,12 +132,9 @@ if (document.readyState === 'loading') {
 // Export for debugging
 window.CHAOS_LAB = {
   manager,
-  ambientBg: window.__chaosAmbientBg,
+  get ambientBg() { return ambientBg; },
   switchTo: (id) => manager.switchTo(id),
   getCurrent: () => manager.getCurrent(),
   pause: () => manager.getCurrent()?.pause(),
   resume: () => manager.getCurrent()?.resume()
 };
-
-// Clean up temp
-delete window.__chaosAmbientBg;

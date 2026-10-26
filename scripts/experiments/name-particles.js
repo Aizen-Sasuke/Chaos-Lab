@@ -4,8 +4,8 @@
  */
 
 import { Experiment } from '../core/Experiment.js';
-import { Particle, ParticleEmitter, TextParticleizer, ForceField } from '../core/ParticleSystem.js';
-import { random, randomChoice, clamp, lerp, distance, hslToCss, getRandomAccent } from '../core/utils.js';
+import { Particle, TextParticleizer, ForceField } from '../core/ParticleSystem.js';
+import { random, randomChoice, clamp, lerp } from '../core/utils.js';
 
 const PARTICLE_COLORS = [
   '#00ffc8', // cyan
@@ -39,10 +39,17 @@ export class NameParticlesExperiment extends Experiment {
     this.forceField = null;
     this.mouseX = this.width / 2;
     this.mouseY = this.height / 2;
+    // The mouse field should only exist once the pointer has actually entered
+    // the experiment. Otherwise a default (0, 0) position quietly drags the
+    // forming name into the corner.
+    this.pointerActive = false;
 
     this.fontSize = 200;
-    this.minFontSize = 80;
-    this.maxFontSize = 400;
+    this.minFontSize = 24;
+    this.maxFontSize = 360;
+    // The name is centred slightly above the canvas middle so the bottom input
+    // dock never sits on top of it.
+    this.textCenterY = 0.44;
   }
 
   async init(container) {
@@ -56,9 +63,17 @@ export class NameParticlesExperiment extends Experiment {
       colors: PARTICLE_COLORS
     });
 
+    // Text measured before the webfont loads would use the fallback face and
+    // produce the wrong glyph shape. Wait for it, but never hang the init.
+    if (document.fonts?.ready) {
+      await Promise.race([
+        document.fonts.ready,
+        new Promise(resolve => setTimeout(resolve, 1000))
+      ]);
+    }
+
     // Sync the font to the canvas-derived size (the init-time resize() ran before this existed)
-    this.fontSize = clamp(this.width * 0.15, this.minFontSize, this.maxFontSize);
-    this.textParticleizer.setFont(`bold ${this.fontSize}px Space Grotesk`);
+    this.applyFont(this.targetText || 'CHAOS LAB');
 
     // Create input overlay
     this.createInputOverlay();
@@ -86,13 +101,13 @@ export class NameParticlesExperiment extends Experiment {
     const wrapper = document.createElement('div');
     wrapper.className = 'name-input-wrapper';
     wrapper.innerHTML = `
-      <input type="text" class="name-input" id="name-input" placeholder="Enter your name" maxlength="20" spellcheck="false" autocomplete="off" />
-      <div class="name-actions" style="display: flex; gap: 8px; width: 100%; justify-content: center; flex-wrap: wrap;">
-        <button id="btn-form" class="switcher-btn" style="padding: 8px 16px; min-width: auto; background: var(--accent); color: var(--bg); font-weight: bold;">✨ Form</button>
-        <button id="btn-explode" class="switcher-btn" style="padding: 8px 16px; min-width: auto; background: var(--accent-2); color: #fff; font-weight: bold;">💥 Explode</button>
-        <button id="btn-clear" class="switcher-btn" style="padding: 8px 16px; min-width: auto; background: var(--bg-panel); border: 1px solid var(--border); color: var(--fg-muted);">❌ Clear</button>
+      <div class="name-input-row">
+        <input type="text" class="name-input" id="name-input" placeholder="Enter your name" maxlength="20" spellcheck="false" autocomplete="off" />
+        <button id="btn-form" class="name-btn name-btn-form" type="button">✨ Form</button>
+        <button id="btn-explode" class="name-btn name-btn-explode" type="button">💥 Explode</button>
+        <button id="btn-clear" class="name-btn name-btn-clear" type="button" aria-label="Clear name">✕</button>
       </div>
-      <p class="name-input-hint">Type name and click <kbd>Form</kbd> or press <kbd>Enter</kbd></p>
+      <p class="name-input-hint">Press <kbd>Enter</kbd> to form · <kbd>Space</kbd> to explode</p>
     `;
 
     this.showOverlay(wrapper);
@@ -101,15 +116,24 @@ export class NameParticlesExperiment extends Experiment {
 
     this.textInput.addEventListener('input', (e) => {
       this.targetText = e.target.value.toUpperCase().slice(0, 20);
+      // Keep the preview glyphs inside the canvas as the text grows.
+      if (!this.currentText) this.applyFont(this.targetText);
     });
 
     this.textInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
         e.preventDefault();
         this.formName();
-      } else if (e.key === ' ' && !this.targetText) {
-        e.preventDefault();
-        this.explodeName();
+      } else if (e.key === ' ') {
+        // Space is the global pause key, but while typing it belongs to the
+        // input. Don't let it reach ExperimentManager...
+        e.stopPropagation();
+
+        // ...and use it to detonate an already formed name.
+        if (this.nameParticles.length > 0 && !this.isExploding) {
+          e.preventDefault();
+          this.explodeName();
+        }
       } else if (e.key === 'Backspace' && !this.targetText && this.currentText) {
         this.clearName();
       }
@@ -128,14 +152,18 @@ export class NameParticlesExperiment extends Experiment {
         if (this.textInput) this.textInput.value = "CHAOS LAB";
       }
       this.formName();
+      // Return focus so Space keeps meaning "explode the name"
+      this.textInput?.focus();
     });
 
     explodeBtn?.addEventListener('click', () => {
       this.explodeName();
+      this.textInput?.focus();
     });
 
     clearBtn?.addEventListener('click', () => {
       this.clearName();
+      this.textInput?.focus();
     });
 
     // Focus input on init
@@ -158,6 +186,31 @@ export class NameParticlesExperiment extends Experiment {
     }
   }
 
+  /**
+   * Largest font size that keeps the text inside ~85% of the canvas width and
+   * well clear of the bottom input dock.
+   */
+  getFittedFontSize(text) {
+    if (!this.textParticleizer || !text) return this.fontSize;
+
+    const referenceSize = 100;
+    this.textParticleizer.setFont(`bold ${referenceSize}px Space Grotesk`);
+    const bounds = this.textParticleizer.getBounds(text);
+
+    const maxWidth = this.width * 0.85;
+    const maxHeight = this.height * 0.44;
+    const byWidth = referenceSize * (maxWidth / Math.max(1, bounds.width));
+    const byHeight = referenceSize * (maxHeight / Math.max(1, bounds.height));
+
+    return clamp(Math.round(Math.min(byWidth, byHeight)), this.minFontSize, this.maxFontSize);
+  }
+
+  applyFont(text) {
+    if (!this.textParticleizer) return;
+    this.fontSize = this.getFittedFontSize(text);
+    this.textParticleizer.setFont(`bold ${this.fontSize}px Space Grotesk`);
+  }
+
   formName() {
     if (!this.targetText) return;
 
@@ -166,20 +219,32 @@ export class NameParticlesExperiment extends Experiment {
     this.formProgress = 0;
     this.isExploding = false;
 
-    // Generate target positions from text
+    // Generate target positions from text, fitted to the current canvas.
+    this.applyFont(this.currentText);
     this.textParticleizer.setText(this.currentText);
+    const bounds = this.textParticleizer.getBounds();
     const particleData = this.textParticleizer.generate();
-    this.nameParticles = particleData.map((data, i) => new Particle({
-      x: this.width / 2 + random(-100, 100),
-      y: this.height / 2 + random(-100, 100),
-      vx: random(-50, 50),
-      vy: random(-50, 50),
+    const offsetX = (this.width - bounds.width) / 2;
+    const offsetY = this.height * this.textCenterY - bounds.height / 2;
+
+    // Spawn just around the name so the letters assemble quickly. Spawning
+    // across the full canvas (with high velocities) made the "formed" name
+    // look like a loose cloud for several seconds.
+    const spawnX = this.width * 0.18;
+    const spawnY = this.height * 0.18;
+
+    this.nameParticles = particleData.map((data) => new Particle({
+      x: this.width / 2 + random(-spawnX, spawnX),
+      y: this.height * this.textCenterY + random(-spawnY, spawnY),
+      vx: random(-8, 8),
+      vy: random(-8, 8),
       radius: data.radius,
       color: data.color,
-      targetX: data.targetX + (this.width - this.textParticleizer.getBounds().width) / 2,
-      targetY: data.targetY + (this.height - this.textParticleizer.getBounds().height) / 2,
-      life: 1,
-      maxLife: 1,
+      targetX: data.targetX + offsetX,
+      targetY: data.targetY + offsetY,
+      // A formed name is the end state of the experiment: it must not expire.
+      life: Infinity,
+      maxLife: Infinity,
       fadeRate: 0,
       drag: 0.92,
       shape: 'circle'
@@ -208,7 +273,6 @@ export class NameParticlesExperiment extends Experiment {
         radius: p.radius * random(0.8, 1.5),
         color: p.color,
         life: random(1.5, 3),
-        maxLife: random(1.5, 3),
         fadeRate: 0.015,
         drag: 0.96,
         gravity: 100,
@@ -224,7 +288,7 @@ export class NameParticlesExperiment extends Experiment {
   clearName() {
     this.currentText = '';
     this.targetText = '';
-    this.textInput.value = '';
+    if (this.textInput) this.textInput.value = '';
     this.isForming = false;
     this.isExploding = false;
     this.nameParticles = [];
@@ -234,26 +298,34 @@ export class NameParticlesExperiment extends Experiment {
 
   handlePointer(event) {
     super.handlePointer(event);
+    // HUD controls also produce window-level pointerup events; don't drag the
+    // force field to a button when the user clicks it.
+    if (event.type === 'pointerup') return;
+    if (event.type === 'pointerleave' || event.type === 'pointercancel') {
+      this.pointerActive = false;
+      return;
+    }
+
     const rect = this.canvas.getBoundingClientRect();
     this.mouseX = event.clientX - rect.left;
     this.mouseY = event.clientY - rect.top;
     this.forceField.setPosition(this.mouseX, this.mouseY);
+    this.pointerActive = true;
   }
 
   handleKeyboard(event) {
     super.handleKeyboard(event);
 
-    if (event.key === ' ') {
-      if (this.targetText && !this.currentText) {
-        event.preventDefault();
-        this.formName();
-      } else if (this.currentText && !this.isExploding) {
-        event.preventDefault();
-        this.explodeName();
-      }
-    } else if (event.key === 'Escape') {
+    // Space / pause is owned by ExperimentManager. Here Escape clears the
+    // name, but not while the user is typing in the input (Escape there
+    // should just behave like a normal text-field escape).
+    if (event.key === 'Escape' && event.target !== this.textInput) {
       this.clearName();
     }
+  }
+
+  getParticleCount() {
+    return this.backgroundParticles.length + this.nameParticles.length + this.explosionParticles.length;
   }
 
   update(dt) {
@@ -290,12 +362,16 @@ export class NameParticlesExperiment extends Experiment {
         p.vy += (dy / dist) * force * dist * dt * 60;
       }
 
-      // Mouse attraction
-      this.forceField.applyTo(p, dt);
+      // Mouse attraction only after the pointer has entered the experiment.
+      if (this.pointerActive) this.forceField.applyTo(p, dt);
 
-      // Subtle noise
-      p.vx += (Math.random() - 0.5) * 10 * dt * 60;
-      p.vy += (Math.random() - 0.5) * 10 * dt * 60;
+      // Jitter only while the name is assembling. Once formed, the letters
+      // should sit still instead of boiling into a wide cloud.
+      const jitter = 0.5 * (1 - this.formProgress);
+      if (jitter > 0) {
+        p.vx += (Math.random() - 0.5) * jitter * dt * 60;
+        p.vy += (Math.random() - 0.5) * jitter * dt * 60;
+      }
 
       p.update(dt, { left: -100, top: -100, right: this.width + 100, bottom: this.height + 100 });
     });
@@ -308,8 +384,9 @@ export class NameParticlesExperiment extends Experiment {
       const dx = p.x - this.mouseX;
       const dy = p.y - this.mouseY;
       const dist = Math.hypot(dx, dy);
-      if (dist < 200 && dist > 0) {
-        const force = 3000 / (dist * dist);
+      if (this.pointerActive && dist < 200 && dist > 0) {
+        const safeDist = Math.max(dist, 8);
+        const force = 3000 / (safeDist * safeDist);
         p.vx += (dx / dist) * force * dt * 60;
         p.vy += (dy / dist) * force * dt * 60;
       }
@@ -322,9 +399,6 @@ export class NameParticlesExperiment extends Experiment {
 
     // Update background particles
     this.updateBackgroundParticles(dt);
-
-    // Update stats
-    this.updateStats();
   }
 
   updateBackgroundParticles(dt) {
@@ -337,8 +411,9 @@ export class NameParticlesExperiment extends Experiment {
       const dx = this.mouseX - p.x;
       const dy = this.mouseY - p.y;
       const dist = Math.hypot(dx, dy);
-      if (dist < 150 && dist > 0) {
-        const force = 1000 / (dist * dist);
+      if (this.pointerActive && dist < 150 && dist > 0) {
+        const safeDist = Math.max(dist, 8);
+        const force = 1000 / (safeDist * safeDist);
         p.vx += (dx / dist) * force * dt * 60;
         p.vy += (dy / dist) * force * dt * 60;
       }
@@ -350,19 +425,12 @@ export class NameParticlesExperiment extends Experiment {
       if (p.y > this.height + 10) p.y = -10;
 
       // Drift
-      p.vx *= 0.999;
-      p.vy *= 0.999;
+      const drift = Math.pow(0.999, dt * 60);
+      p.vx *= drift;
+      p.vy *= drift;
       p.vx += (Math.random() - 0.5) * 0.5;
       p.vy += (Math.random() - 0.5) * 0.5;
     });
-  }
-
-  updateStats() {
-    const count = this.nameParticles.length + this.explosionParticles.length + this.backgroundParticles.length;
-    const statCount = document.getElementById('particle-count');
-    if (statCount) {
-      statCount.textContent = count;
-    }
   }
 
   render() {
@@ -416,11 +484,12 @@ export class NameParticlesExperiment extends Experiment {
 
   drawTextPreview(ctx) {
     ctx.save();
+    const centerY = this.height * this.textCenterY;
     ctx.font = `bold ${this.fontSize}px Space Grotesk`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
 
-    const gradient = ctx.createLinearGradient(0, this.height / 2 - this.fontSize / 2, 0, this.height / 2 + this.fontSize / 2);
+    const gradient = ctx.createLinearGradient(0, centerY - this.fontSize / 2, 0, centerY + this.fontSize / 2);
     gradient.addColorStop(0, '#00ffc8');
     gradient.addColorStop(0.5, '#ffd700');
     gradient.addColorStop(1, '#ff2a6d');
@@ -428,23 +497,27 @@ export class NameParticlesExperiment extends Experiment {
     ctx.fillStyle = gradient;
     ctx.globalAlpha = 0.3 + Math.sin(performance.now() * 0.003) * 0.2;
 
-    const maxWidth = this.width * 0.9;
-    ctx.fillText(this.targetText, this.width / 2, this.height / 2, maxWidth);
+    const maxWidth = this.width * 0.85;
+    ctx.fillText(this.targetText, this.width / 2, centerY, maxWidth);
 
     // Glow
     ctx.shadowColor = '#00ffc8';
     ctx.shadowBlur = 30;
     ctx.globalAlpha = 0.15;
-    ctx.fillText(this.targetText, this.width / 2, this.height / 2, maxWidth);
+    ctx.fillText(this.targetText, this.width / 2, centerY, maxWidth);
 
     ctx.restore();
   }
 
   drawFormationProgress(ctx) {
-    const barWidth = 200;
+    const barWidth = Math.min(200, this.width * 0.5);
     const barHeight = 4;
     const x = (this.width - barWidth) / 2;
-    const y = this.height / 2 + this.fontSize / 2 + 40;
+    // Sit just below the name, but never under the bottom input dock.
+    const y = Math.min(
+      this.height * 0.74,
+      this.height * this.textCenterY + this.fontSize * 0.62 + 20
+    );
 
     ctx.save();
     // Background
@@ -472,12 +545,8 @@ export class NameParticlesExperiment extends Experiment {
     // The particleizer is created after super.init() runs, so it may not exist yet
     if (!this.textParticleizer) return;
 
-    // Update text particleizer font size based on canvas width
-    const newFontSize = clamp(this.width * 0.15, this.minFontSize, this.maxFontSize);
-    if (Math.abs(newFontSize - this.fontSize) > 10) {
-      this.fontSize = newFontSize;
-      this.textParticleizer.setFont(`bold ${this.fontSize}px Space Grotesk`);
-    }
+    // Re-fit the font to the new canvas size.
+    this.applyFont(this.currentText || this.targetText || 'CHAOS LAB');
 
     // Recreate background particles for new size
     if (this.backgroundParticles.length !== BACKGROUND_PARTICLES) {

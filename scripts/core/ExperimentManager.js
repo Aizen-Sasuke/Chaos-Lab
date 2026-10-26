@@ -16,6 +16,10 @@ export class ExperimentManager extends EventEmitter {
     this.currentId = null;
     this.currentInstance = null;
     this.transitioning = false;
+    this.queuedId = null;
+    this.switcherClickHandler = null;
+    this.resizeHandler = null;
+    this.keyHandler = null;
     this.keys = {
       '1': 'cursor-gravity',
       '2': 'cursed-button',
@@ -58,6 +62,11 @@ export class ExperimentManager extends EventEmitter {
       await this.switchTo(firstId, { animate: false });
     }
 
+    // The switcher indicator is positioned from measured rects, so it has to be
+    // recalculated whenever the layout changes (resize / orientation change).
+    this.resizeHandler = () => this.updateSwitcherUI(this.currentId);
+    window.addEventListener('resize', this.resizeHandler);
+
     this.emit('ready');
     return this;
   }
@@ -68,12 +77,13 @@ export class ExperimentManager extends EventEmitter {
   bindSwitcher() {
     if (!this.switcher) return;
 
-    this.switcher.addEventListener('click', (e) => {
+    this.switcherClickHandler = (e) => {
       const btn = e.target.closest('.switcher-btn');
       if (btn && btn.dataset.exp) {
         this.switchTo(btn.dataset.exp);
       }
-    });
+    };
+    this.switcher.addEventListener('click', this.switcherClickHandler);
   }
 
   /**
@@ -81,13 +91,20 @@ export class ExperimentManager extends EventEmitter {
    */
   bindKeyboard() {
     this.keyHandler = (e) => {
-      // Ignore if typing in input
-      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+      const target = e.target;
+      const tag = target?.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target?.isContentEditable;
+
+      // Ignore if typing in a form control
+      if (typing) return;
 
       if (this.keys[e.key]) {
         e.preventDefault();
         this.switchTo(this.keys[e.key]);
       } else if (e.key === ' ' || e.code === 'Space') {
+        // Space is the "activate" key for focused buttons/links. Don't turn a
+        // button press into a paused experiment at the same time.
+        if (tag === 'BUTTON' || tag === 'A') return;
         e.preventDefault();
         this.togglePause();
       }
@@ -101,7 +118,12 @@ export class ExperimentManager extends EventEmitter {
   async switchTo(id, options = {}) {
     const { animate = true, force = false } = options;
 
-    if (this.transitioning && !force) return false;
+    // A switch is already animating: remember the latest request instead of
+    // silently dropping the tab click.
+    if (this.transitioning && !force) {
+      this.queuedId = id;
+      return false;
+    }
     if (this.currentId === id && !force) return false;
     if (!this.experiments.has(id)) {
       console.warn(`Experiment "${id}" not registered`);
@@ -148,10 +170,21 @@ export class ExperimentManager extends EventEmitter {
       this.emit('switch', { id, metadata });
     } catch (error) {
       console.error(`Failed to initialize experiment "${id}":`, error);
+      // Don't leave a half-initialized instance or stale id behind
+      try { this.currentInstance?.destroy(); } catch { /* ignore */ }
+      this.currentInstance = null;
+      this.currentId = null;
       this.showError(id, error);
+      this.emit('switchError', { id, error });
       return false;
     } finally {
       this.transitioning = false;
+
+      const queued = this.queuedId;
+      this.queuedId = null;
+      if (queued && queued !== this.currentId) {
+        this.switchTo(queued);
+      }
     }
 
     return true;
@@ -220,14 +253,27 @@ export class ExperimentManager extends EventEmitter {
   showError(id, error) {
     if (!this.viewport) return;
 
-    this.viewport.innerHTML = `
-      <div class="experiment-error">
-        <h3>Experiment Failed</h3>
-        <p>Could not load <code>${id}</code></p>
-        <pre style="color: var(--fg-muted); font-size: 0.75rem; max-height: 200px; overflow: auto; text-align: left;">${error.message}\n${error.stack || ''}</pre>
-        <button onclick="location.reload()">Reload Page</button>
-      </div>
-    `;
+    this.viewport.innerHTML = '';
+
+    const wrap = document.createElement('div');
+    wrap.className = 'experiment-error';
+
+    const heading = document.createElement('h3');
+    heading.textContent = 'Experiment Failed';
+
+    const message = document.createElement('p');
+    message.textContent = `Could not load ${id}`;
+
+    const detail = document.createElement('pre');
+    detail.style.cssText = 'color: var(--fg-muted); font-size: 0.75rem; max-height: 200px; overflow: auto; text-align: left;';
+    detail.textContent = `${error.message}\n${error.stack || ''}`;
+
+    const reload = document.createElement('button');
+    reload.textContent = 'Reload Page';
+    reload.addEventListener('click', () => location.reload());
+
+    wrap.append(heading, message, detail, reload);
+    this.viewport.appendChild(wrap);
   }
 
   /**
@@ -236,9 +282,18 @@ export class ExperimentManager extends EventEmitter {
   destroy() {
     if (this.currentInstance) {
       this.currentInstance.destroy();
+      this.currentInstance = null;
     }
     if (this.keyHandler) {
       window.removeEventListener('keydown', this.keyHandler);
+    }
+    if (this.switcherClickHandler && this.switcher) {
+      this.switcher.removeEventListener('click', this.switcherClickHandler);
+      this.switcherClickHandler = null;
+    }
+    if (this.resizeHandler) {
+      window.removeEventListener('resize', this.resizeHandler);
+      this.resizeHandler = null;
     }
     this.clear();
   }

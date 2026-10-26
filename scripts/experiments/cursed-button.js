@@ -4,8 +4,8 @@
  */
 
 import { Experiment } from '../core/Experiment.js';
-import { Particle, ParticleEmitter } from '../core/ParticleSystem.js';
-import { random, randomChoice, clamp, lerp, hslToCss, getRandomAccent, distance } from '../core/utils.js';
+import { ParticleEmitter } from '../core/ParticleSystem.js';
+import { random, randomChoice, clamp, distance } from '../core/utils.js';
 
 const TAUNTS = [
   "Nice try.",
@@ -71,30 +71,35 @@ export class CursedButtonExperiment extends Experiment {
     this.lastEscapeTime = 0;
 
     this.particleEmitter = null;
-    this.burstParticles = [];
     this.tauntElement = null;
     this.tauntTimer = 0;
     this.currentTaunt = '';
 
     this.isEscaping = false;
     this.escapeCooldown = 0;
-    this.minEscapeDistance = 150;
+    this.minEscapeDistance = 110;
     this.escapeForce = 0.8;
     this.springStiffness = 0.15;
     this.springDamping = 0.85;
 
-    this.bounds = { left: 50, top: 50, right: 0, bottom: 0 };
+    this.bounds = { left: 0, top: 0, right: 0, bottom: 0 };
+
+    // Viewport coordinates: the button is position: fixed and sits above the
+    // canvas, so canvas-local pointer coordinates can never be right.
+    this.mouseX = null;
+    this.mouseY = null;
+    this.mouseMoveHandler = this.handleMouseMove.bind(this);
   }
 
   async init(container) {
     await super.init(container);
 
-    // Calculate bounds
+    // Keep the button inside the experiment area, not the whole window
     this.updateBounds();
 
-    // Initial position - center of screen
-    this.buttonRect.x = Math.max(this.bounds.left, (window.innerWidth - this.buttonRect.width) / 2);
-    this.buttonRect.y = Math.max(this.bounds.top, (window.innerHeight - this.buttonRect.height) / 2);
+    // Initial position - centre of the experiment
+    this.buttonRect.x = this.bounds.left + (this.bounds.right - this.bounds.left - this.buttonRect.width) / 2;
+    this.buttonRect.y = this.bounds.top + (this.bounds.bottom - this.bounds.top - this.buttonRect.height) / 2;
     this.targetRect = { ...this.buttonRect };
 
     // Create button element
@@ -135,11 +140,18 @@ export class CursedButtonExperiment extends Experiment {
     // Stats overlay
     this.showOverlay(this.createStatsOverlay());
 
-    // Listen for resize
-    this.resizeHandler = this.handleResize.bind(this);
-    window.addEventListener('resize', this.resizeHandler);
+    // Track the pointer globally: once the cursor is over the <button>, the
+    // canvas stops receiving pointermove events.
+    window.addEventListener('mousemove', this.mouseMoveHandler, { passive: true });
+    window.addEventListener('touchmove', this.mouseMoveHandler, { passive: true });
 
     return this;
+  }
+
+  handleMouseMove(event) {
+    const touch = event.touches?.[0];
+    this.mouseX = touch ? touch.clientX : event.clientX;
+    this.mouseY = touch ? touch.clientY : event.clientY;
   }
 
   createButton() {
@@ -155,14 +167,19 @@ export class CursedButtonExperiment extends Experiment {
       top: `${this.buttonRect.y}px`,
       width: `${this.buttonRect.width}px`,
       height: `${this.buttonRect.height}px`,
-      zIndex: 1000,
+      zIndex: 40,
       pointerEvents: 'auto'
     });
 
     // Events
     this.button.addEventListener('click', this.handleClick.bind(this));
     this.button.addEventListener('mouseenter', this.handleHover.bind(this));
-    this.button.addEventListener('touchstart', this.handleHover.bind(this), { passive: true });
+    // A tap should register as a click before the button decides to dodge,
+    // so touch only records the attempt here.
+    this.button.addEventListener('touchstart', () => {
+      this.hovers++;
+      this.updateStatsDisplay();
+    }, { passive: true });
 
     document.body.appendChild(this.button);
 
@@ -175,7 +192,7 @@ export class CursedButtonExperiment extends Experiment {
       top: ${this.buttonRect.y - 40}px;
       transform: translateX(-50%);
       pointer-events: none;
-      z-index: 1001;
+      z-index: 41;
       white-space: nowrap;
       transition: opacity 0.2s, transform 0.2s;
     `;
@@ -184,34 +201,38 @@ export class CursedButtonExperiment extends Experiment {
 
   createStatsOverlay() {
     const div = document.createElement('div');
-    div.className = 'cursed-btn-wrapper';
+    div.className = 'cursed-hud';
     div.innerHTML = `
       <div class="cursed-stats">
         <span>Clicks: <span class="stat-value" id="cursed-clicks">0</span></span>
         <span>Escapes: <span class="stat-value" id="cursed-escapes">0</span></span>
         <span>Hovers: <span class="stat-value" id="cursed-hovers">0</span></span>
       </div>
-      <p style="font-size: 0.75rem; color: var(--fg-muted); text-align: center; max-width: 300px;">
-        Try to click the button. It <em>really</em> doesn't want to be clicked.
-      </p>
+      <p class="cursed-hint">Try to click the button. It <em>really</em> doesn't want to be clicked.</p>
     `;
     return div;
   }
 
   updateBounds() {
-    const w = window.innerWidth || 800;
-    const h = window.innerHeight || 600;
-    const padding = 50;
+    const rect = this.canvas?.getBoundingClientRect();
+    const padding = 24;
+
+    // Fall back to the window only if the canvas isn't laid out yet
+    const left = rect ? rect.left : 0;
+    const top = rect ? rect.top : 0;
+    const right = rect ? rect.right : window.innerWidth;
+    const bottom = rect ? rect.bottom : window.innerHeight;
+
     this.bounds = {
-      left: padding,
-      top: 180,
-      right: Math.max(300, w - padding),
-      bottom: Math.max(300, h - padding)
+      left: left + padding,
+      top: top + padding,
+      right: Math.max(left + padding + this.buttonRect.width, right - padding),
+      bottom: Math.max(top + padding + this.buttonRect.height, bottom - padding)
     };
   }
 
   handleResize() {
-    this.resize();
+    super.handleResize();
     this.updateBounds();
     this.clampButtonPosition();
   }
@@ -224,7 +245,7 @@ export class CursedButtonExperiment extends Experiment {
     this.updateStatsDisplay();
 
     // Burst particles
-    this.burstParticles();
+    this.burstParticlesAtButton();
 
     // Show taunt
     this.showTaunt(randomChoice(TAUNTS));
@@ -257,14 +278,18 @@ export class CursedButtonExperiment extends Experiment {
     this.escapes++;
     this.updateStatsDisplay();
     this.isEscaping = true;
-    this.escapeCooldown = 500;
+    // Give the button time to actually land and rest before it reacts again.
+    this.escapeCooldown = 700;
 
-    // Calculate escape direction (away from mouse)
-    const btnCenterX = this.buttonRect.x + this.buttonRect.width / 2;
-    const btnCenterY = this.buttonRect.y + this.buttonRect.height / 2;
+    // Pick the landing spot now: update() holds this target during the
+    // cooldown, so the hop starts immediately instead of waiting 700ms.
+    const fallbackX = this.buttonRect.x + this.buttonRect.width / 2;
+    const fallbackY = this.buttonRect.y + this.buttonRect.height / 2;
+    this.calculateEscapeTarget(
+      this.mouseX !== null ? this.mouseX : fallbackX,
+      this.mouseY !== null ? this.mouseY : fallbackY
+    );
 
-    // We need mouse position - approximate from button center for now
-    // The actual escape will be calculated in update() using current mouse pos
     this.showTaunt(randomChoice(ESCAPE_TAUNTS), true);
 
     this.button.classList.add('escaped');
@@ -287,8 +312,25 @@ export class CursedButtonExperiment extends Experiment {
 
   updateTauntPosition() {
     if (!this.tauntElement || !this.button) return;
-    const x = this.buttonRect.x + this.buttonRect.width / 2;
-    const y = this.buttonRect.y - 30;
+    const rect = this.canvas?.getBoundingClientRect();
+    if (!rect) return;
+
+    // Keep the taunt inside the experiment instead of letting it hang off an
+    // edge when the button is near a corner.
+    const width = this.tauntElement.offsetWidth || 160;
+    const half = Math.min(width / 2, rect.width / 2);
+    const x = clamp(
+      this.buttonRect.x + this.buttonRect.width / 2,
+      rect.left + half + 8,
+      rect.right - half - 8
+    );
+
+    let y = this.buttonRect.y - 34;
+    if (y < rect.top + 8) {
+      y = this.buttonRect.y + this.buttonRect.height + 10;
+    }
+    y = clamp(y, rect.top + 8, Math.max(rect.top + 8, rect.bottom - 28));
+
     this.tauntElement.style.left = `${x}px`;
     this.tauntElement.style.top = `${y}px`;
   }
@@ -302,10 +344,13 @@ export class CursedButtonExperiment extends Experiment {
     if (hoversEl) hoversEl.textContent = this.hovers;
   }
 
-  burstParticles() {
+  burstParticlesAtButton() {
+    if (!this.particleEmitter) return;
     const cx = this.buttonRect.x + this.buttonRect.width / 2;
     const cy = this.buttonRect.y + this.buttonRect.height / 2;
-    this.particleEmitter.setPosition(cx, cy);
+    const rect = this.canvas.getBoundingClientRect();
+    // The emitter draws on the canvas, so convert viewport -> canvas coords
+    this.particleEmitter.setPosition(cx - rect.left, cy - rect.top);
     this.particleEmitter.burst(30);
   }
 
@@ -314,7 +359,7 @@ export class CursedButtonExperiment extends Experiment {
 
     // Update escape cooldown
     if (this.escapeCooldown > 0) {
-      this.escapeCooldown -= dt * 1000;
+      this.escapeCooldown = Math.max(0, this.escapeCooldown - dt * 1000);
     }
 
     // Update taunt timer
@@ -325,14 +370,18 @@ export class CursedButtonExperiment extends Experiment {
       }
     }
 
-    // Get mouse position relative to viewport
-    // We'll track mouse via pointer events on the canvas
-    const mouseX = this.mouseX || this.width / 2;
-    const mouseY = this.mouseY || this.height / 2;
-
-    // Calculate escape behavior
-    if (this.isEscaping || this.shouldEscape(mouseX, mouseY)) {
-      this.calculateEscapeTarget(mouseX, mouseY);
+    // Calculate escape behavior. While cooling down, keep the current target
+    // so the hop can finish and the button becomes clickable for a moment.
+    // Nothing to flee from until the pointer has actually moved (mouseX/mouseY
+    // are viewport coordinates).
+    const canReact = this.escapeCooldown <= 0;
+    if (!canReact) {
+      // Hold this target.
+    } else if (this.mouseX !== null && this.mouseY !== null &&
+        this.shouldEscape(this.mouseX, this.mouseY)) {
+      // Approaching the button counts as an escape attempt, with the same
+      // cooldown so it can actually be caught between hops.
+      this.triggerEscape();
     } else {
       // Spring back to center when not escaping
       const centerX = (this.bounds.right + this.bounds.left - this.buttonRect.width) / 2;
@@ -341,9 +390,14 @@ export class CursedButtonExperiment extends Experiment {
       this.targetRect.y = centerY;
     }
 
-    // Spring physics for smooth movement
-    this.velocity.x = (this.velocity.x + (this.targetRect.x - this.buttonRect.x) * this.springStiffness) * this.springDamping;
-    this.velocity.y = (this.velocity.y + (this.targetRect.y - this.buttonRect.y) * this.springStiffness) * this.springDamping;
+    // Spring physics for smooth movement. The constants are tuned for 60fps,
+    // so convert them to per-second factors to stay consistent on other
+    // refresh rates.
+    const stiffness = 1 - Math.pow(1 - this.springStiffness, dt * 60);
+    const damping = Math.pow(this.springDamping, dt * 60);
+
+    this.velocity.x = (this.velocity.x + (this.targetRect.x - this.buttonRect.x) * stiffness) * damping;
+    this.velocity.y = (this.velocity.y + (this.targetRect.y - this.buttonRect.y) * stiffness) * damping;
 
     this.buttonRect.x += this.velocity.x * dt * 60;
     this.buttonRect.y += this.velocity.y * dt * 60;
@@ -361,14 +415,15 @@ export class CursedButtonExperiment extends Experiment {
 
     // Update particles
     this.particleEmitter.update(dt, { left: 0, top: 0, right: this.width, bottom: this.height });
-    this.burstParticles = this.burstParticles.filter(p => p.update(dt, { left: 0, top: 0, right: this.width, bottom: this.height }));
 
     // Reset escaping state
     if (this.isEscaping && Math.hypot(this.velocity.x, this.velocity.y) < 5) {
       this.isEscaping = false;
     }
+  }
 
-    this.updateStatsDisplay();
+  getParticleCount() {
+    return this.particleEmitter?.getCount() || 0;
   }
 
   shouldEscape(mouseX, mouseY) {
@@ -383,9 +438,18 @@ export class CursedButtonExperiment extends Experiment {
     const btnCenterY = this.buttonRect.y + this.buttonRect.height / 2;
 
     // Direction away from mouse
-    const dx = btnCenterX - mouseX;
-    const dy = btnCenterY - mouseY;
-    const dist = Math.hypot(dx, dy) || 1;
+    let dx = btnCenterX - mouseX;
+    let dy = btnCenterY - mouseY;
+    let dist = Math.hypot(dx, dy);
+
+    // If the pointer is exactly on the button (e.g. a programmatic click),
+    // pick a random direction instead of dividing by zero.
+    if (dist < 1) {
+      const angle = random(0, Math.PI * 2);
+      dx = Math.cos(angle);
+      dy = Math.sin(angle);
+      dist = 1;
+    }
 
     const escapeDist = this.minEscapeDistance + random(50, 150);
     const force = this.escapeForce;
@@ -414,13 +478,6 @@ export class CursedButtonExperiment extends Experiment {
     this.targetRect.y = clamp(this.targetRect.y, this.bounds.top, this.bounds.bottom - this.buttonRect.height);
   }
 
-  handlePointer(event) {
-    super.handlePointer(event);
-    const rect = this.canvas.getBoundingClientRect();
-    this.mouseX = event.clientX - rect.left;
-    this.mouseY = event.clientY - rect.top;
-  }
-
   render() {
     const ctx = this.ctx;
 
@@ -432,9 +489,6 @@ export class CursedButtonExperiment extends Experiment {
 
     // Draw particle emitter particles
     this.particleEmitter.draw(ctx);
-
-    // Draw burst particles
-    this.burstParticles.forEach(p => p.draw(ctx));
   }
 
   drawGrid(ctx) {
@@ -459,14 +513,18 @@ export class CursedButtonExperiment extends Experiment {
   }
 
   destroy() {
+    window.removeEventListener('mousemove', this.mouseMoveHandler);
+    window.removeEventListener('touchmove', this.mouseMoveHandler);
+    if (this.particleEmitter) {
+      this.particleEmitter.particles.length = 0;
+      this.particleEmitter.active = false;
+    }
+
     if (this.button && this.button.parentNode) {
       this.button.parentNode.removeChild(this.button);
     }
     if (this.tauntElement && this.tauntElement.parentNode) {
       this.tauntElement.parentNode.removeChild(this.tauntElement);
-    }
-    if (this.resizeHandler) {
-      window.removeEventListener('resize', this.resizeHandler);
     }
     super.destroy();
   }
